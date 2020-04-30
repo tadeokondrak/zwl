@@ -41,6 +41,7 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
                 } else if (i == list.array.items.len) {
                     const elem = try list.array.addOne();
                     elem.* = Elem{ .object = undefined };
+                    list.next += 1;
                     return &elem.object;
                 } else {
                     return error.NonSequentialObjectCreation;
@@ -86,8 +87,8 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
 
         pub fn create(map: *Self, id: ?u32) !NewObject {
             const new_id = id orelse switch (side) {
-                .client => map.client.next,
-                .server => map.server.next,
+                .client => client_start + map.client.next,
+                .server => server_start + map.server.next,
             };
             const object = switch (new_id) {
                 0 => unreachable,

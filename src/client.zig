@@ -1,32 +1,76 @@
 const std = @import("std");
-const WireConnection = @import("common/wire_connection.zig").WireConnection;
-const ObjectMap = @import("common/object_map.zig").ObjectMap;
 const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 const net = std.net;
+
+const WireConnection = @import("common/wire_connection.zig").WireConnection;
+const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
 pub const Object = struct {
     conn: *Connection,
     id: u32,
 };
 
+pub const Display = struct {
+    object: Object,
+
+    pub fn sync(display: *Display) Callback {
+        const callback = (display.object.conn.object_map.create(null) catch unreachable).id;
+        display.object.conn.wire_conn.out.putUint(display.object.id) catch unreachable;
+        display.object.conn.wire_conn.out.putUint((12 << 16) | 0) catch unreachable;
+        display.object.conn.wire_conn.out.putUint(callback) catch unreachable;
+        return .{
+            .object = .{
+                .conn = display.object.conn,
+                .id = callback,
+            },
+        };
+    }
+
+    pub fn getRegistry(display: *Display) Registry {
+        const registry = (display.object.conn.object_map.create(null) catch unreachable).id;
+        display.object.conn.wire_conn.out.putUint(display.object.id) catch unreachable;
+        display.object.conn.wire_conn.out.putUint((12 << 16) | 1) catch unreachable;
+        display.object.conn.wire_conn.out.putUint(registry) catch unreachable;
+        return .{
+            .object = .{
+                .conn = display.object.conn,
+                .id = registry,
+            },
+        };
+    }
+};
+
+pub const Registry = struct {
+    object: Object,
+};
+
+pub const Callback = struct {
+    object: Object,
+};
+
 pub const Connection = struct {
+    const ObjectData = struct {
+        non_zero_size: u8,
+    };
+
     allocator: *mem.Allocator,
     wire_conn: WireConnection,
-    object_map: ObjectMap(Object, .client),
+    object_map: ObjectMap(ObjectData, .client),
 
     pub fn init(allocator: *mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
             if (os.getenv("WAYLAND_SOCKET")) |wayland_socket| {
-                // TODO: set CLOEXEC
-                // TODO: unset environment variable
+                // TODO: set CLOEXEC and unset environment variable
                 break :blk fs.File{
                     .handle = try std.fmt.parseInt(c_int, wayland_socket, 10),
                     .io_mode = std.io.mode,
                 };
             }
-            const display_option = display_name orelse os.getenv("WAYLAND_DISPLAY") orelse "wayland-0";
+            const display_option = display_name orelse
+                os.getenv("WAYLAND_DISPLAY") orelse
+                "wayland-0";
             if (display_option.len > 0 and display_option[0] == '/') {
                 break :blk try net.connectUnixSocket(display_option);
             } else {
@@ -44,7 +88,7 @@ pub const Connection = struct {
                 break :blk try net.connectUnixSocket(path);
             }
         };
-        var object_map = ObjectMap(Object, .client).init(allocator);
+        var object_map = ObjectMap(ObjectData, .client).init(allocator);
         _ = try object_map.create(1);
         return Connection{
             .allocator = allocator,
@@ -66,10 +110,12 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
-    pub fn display(conn: *Connection) Object {
+    pub fn display(conn: *Connection) Display {
         return .{
-            .conn = conn,
-            .id = 1,
+            .object = .{
+                .conn = conn,
+                .id = 1,
+            },
         };
     }
 };
@@ -84,6 +130,14 @@ test "Connection: raw request globals" {
     try conn.wire_conn.out.putUint(1);
     try conn.wire_conn.out.putUint((12 << 16) | 1);
     try conn.wire_conn.out.putUint(2);
+    try conn.flush();
+    try conn.read();
+}
+
+test "Connection: request globals" {
+    var conn = try Connection.init(std.testing.allocator, null);
+    defer conn.deinit();
+    _ = conn.display().getRegistry();
     try conn.flush();
     try conn.read();
 }
