@@ -1,15 +1,22 @@
 const std = @import("std");
 const WireConnection = @import("wire_connection.zig").WireConnection;
+const ObjectMap = @import("object_map.zig").ObjectMap;
 const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 const net = std.net;
 
+pub const Object = struct {
+    conn: *Connection,
+    id: u32,
+};
+
 pub const Connection = struct {
     allocator: *mem.Allocator,
     wire_conn: WireConnection,
+    object_map: ObjectMap(Object, .client),
 
-    pub fn init(allocator: *mem.Allocator, display: ?[]const u8) !Connection {
+    pub fn init(allocator: *mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
             if (os.getenv("WAYLAND_SOCKET")) |wayland_socket| {
                 // TODO: set CLOEXEC
@@ -19,16 +26,16 @@ pub const Connection = struct {
                     .io_mode = std.io.mode,
                 };
             }
-            const display_name = display orelse os.getenv("WAYLAND_DISPLAY") orelse "wayland-0";
-            if (display_name.len > 0 and display_name[0] == '/') {
-                break :blk try net.connectUnixSocket(display_name);
+            const display_option = display_name orelse os.getenv("WAYLAND_DISPLAY") orelse "wayland-0";
+            if (display_option.len > 0 and display_option[0] == '/') {
+                break :blk try net.connectUnixSocket(display_option);
             } else {
                 const runtime_dir = os.getenv("XDG_RUNTIME_DIR") orelse
                     return error.XdgRuntimeDirNotSet;
                 var buf: [os.PATH_MAX]u8 = undefined;
                 var bufalloc = std.heap.FixedBufferAllocator.init(&buf);
                 const path = fs.path.joinPosix(&bufalloc.allocator, &[_][]const u8{
-                    runtime_dir, display_name,
+                    runtime_dir, display_option,
                 }) catch |err| switch (err) {
                     error.OutOfMemory => {
                         return error.PathTooLong;
@@ -37,13 +44,17 @@ pub const Connection = struct {
                 break :blk try net.connectUnixSocket(path);
             }
         };
+        var object_map = ObjectMap(Object, .client).init(allocator);
+        _ = try object_map.create(1);
         return Connection{
             .allocator = allocator,
             .wire_conn = WireConnection.init(socket),
+            .object_map = object_map,
         };
     }
 
     pub fn deinit(conn: *Connection) void {
+        conn.object_map.deinit();
         conn.wire_conn.socket.close();
     }
 
@@ -53,6 +64,13 @@ pub const Connection = struct {
 
     pub fn flush(conn: *Connection) !void {
         try conn.wire_conn.flush();
+    }
+
+    pub fn display(conn: *Connection) Object {
+        return .{
+            .conn = conn,
+            .id = 1,
+        };
     }
 };
 
