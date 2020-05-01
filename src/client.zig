@@ -3,6 +3,8 @@ const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
 const net = std.net;
+const fd_t = os.fd_t;
+const assert = std.debug.assert;
 
 const WireConnection = @import("common/wire_connection.zig").WireConnection;
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
@@ -10,17 +12,21 @@ const ObjectMap = @import("common/object_map.zig").ObjectMap;
 pub const Object = struct {
     conn: *Connection,
     id: u32,
+
+    pub fn send(obj: *Object, args: []Argument) !void {
+        try obj.conn.send(obj.id, args);
+    }
 };
 
 pub const Display = struct {
     object: Object,
 
-    pub fn sync(display: *Display) Callback {
-        const callback = (display.object.conn.object_map.create(null) catch unreachable).id;
-        display.object.conn.wire_conn.out.putUint(display.object.id) catch unreachable;
-        display.object.conn.wire_conn.out.putUint((12 << 16) | 0) catch unreachable;
-        display.object.conn.wire_conn.out.putUint(callback) catch unreachable;
-        return .{
+    pub fn sync(display: *Display) !Callback {
+        const callback = (try display.object.conn.object_map.create(null)).id;
+        try display.object.conn.wire_conn.out.putUint(display.object.id);
+        try display.object.conn.wire_conn.out.putUint((12 << 16) | 0);
+        try display.object.conn.wire_conn.out.putUint(callback);
+        return Callback{
             .object = .{
                 .conn = display.object.conn,
                 .id = callback,
@@ -28,12 +34,13 @@ pub const Display = struct {
         };
     }
 
-    pub fn getRegistry(display: *Display) Registry {
-        const registry = (display.object.conn.object_map.create(null) catch unreachable).id;
-        display.object.conn.wire_conn.out.putUint(display.object.id) catch unreachable;
-        display.object.conn.wire_conn.out.putUint((12 << 16) | 1) catch unreachable;
-        display.object.conn.wire_conn.out.putUint(registry) catch unreachable;
-        return .{
+    pub fn getRegistry(display: *Display) !Registry {
+        const registry = (try display.object.conn.object_map.create(null)).id;
+        try display.object.send(.{});
+        // try display.object.conn.wire_conn.out.putUint(display.object.id);
+        // try display.object.conn.wire_conn.out.putUint((12 << 16) | 1);
+        // try display.object.conn.wire_conn.out.putUint(registry);
+        return Registry{
             .object = .{
                 .conn = display.object.conn,
                 .id = registry,
@@ -50,9 +57,21 @@ pub const Callback = struct {
     object: Object,
 };
 
+pub const Argument = union(enum) {
+    int: i32,
+    uint: u32,
+    fixed: f64,
+    object: u32,
+    new_id: u32,
+    string: []const u8,
+    array: []const u8,
+    fd: fd_t,
+};
+
 pub const Connection = struct {
     const ObjectData = struct {
-        non_zero_size: u8,
+        version: u32,
+        listener: usize,
     };
 
     allocator: *mem.Allocator,
@@ -69,8 +88,7 @@ pub const Connection = struct {
                 };
             }
             const display_option = display_name orelse
-                os.getenv("WAYLAND_DISPLAY") orelse
-                "wayland-0";
+                os.getenv("WAYLAND_DISPLAY") orelse "wayland-0";
             if (display_option.len > 0 and display_option[0] == '/') {
                 break :blk try net.connectUnixSocket(display_option);
             } else {
@@ -89,12 +107,19 @@ pub const Connection = struct {
             }
         };
         var object_map = ObjectMap(ObjectData, .client).init(allocator);
-        _ = try object_map.create(1);
-        return Connection{
+        const display_data = try object_map.create(1);
+        assert(display_data.id == 1);
+        display_data.object.* = ObjectData{
+            .version = 1,
+            .listener = 0,
+        };
+        const conn = Connection{
             .allocator = allocator,
             .wire_conn = WireConnection.init(socket),
             .object_map = object_map,
         };
+        // conn.display().setListener(displayListener);
+        return conn;
     }
 
     pub fn deinit(conn: *Connection) void {
@@ -118,6 +143,10 @@ pub const Connection = struct {
             },
         };
     }
+
+    pub fn send(conn: *Connection, id: u32, args: []Argument) !void {
+        inline for (args) |arg| {}
+    }
 };
 
 test "Connection" {
@@ -137,7 +166,7 @@ test "Connection: raw request globals" {
 test "Connection: request globals" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
-    _ = conn.display().getRegistry();
+    _ = try conn.display().getRegistry();
     try conn.flush();
     try conn.read();
 }
