@@ -8,9 +8,16 @@ pub fn eql(escaped: []const u8, unescaped: []const u8) bool {
     return true;
 }
 
-pub fn unescapeAlloc(text: []const u8, allocator: *std.mem.Allocator) ![]u8 {
-    // TODO
-    return std.mem.dupe(u8, text, allocator);
+pub fn append(list: *std.ArrayList(u8), escaped: []const u8) !void {
+    var unescaper = Unescape.init(escaped);
+    while (unescaper.next()) |c|
+        try list.append(c);
+}
+
+pub fn dupe(allocator: *std.mem.Allocator, escaped: []const u8) ![]u8 {
+    var string = std.ArrayList(u8).init(allocator);
+    try append(&string, escaped);
+    return string.toOwnedSlice();
 }
 
 pub const Unescape = struct {
