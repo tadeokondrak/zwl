@@ -12,10 +12,6 @@ const ObjectMap = @import("common/object_map.zig").ObjectMap;
 pub const Object = struct {
     conn: *Connection,
     id: u32,
-
-    pub fn send(obj: *Object, args: []Argument) !void {
-        try obj.conn.send(obj.id, args);
-    }
 };
 
 pub const Display = struct {
@@ -36,10 +32,9 @@ pub const Display = struct {
 
     pub fn getRegistry(display: *Display) !Registry {
         const registry = (try display.object.conn.object_map.create(null)).id;
-        try display.object.send(.{});
-        // try display.object.conn.wire_conn.out.putUint(display.object.id);
-        // try display.object.conn.wire_conn.out.putUint((12 << 16) | 1);
-        // try display.object.conn.wire_conn.out.putUint(registry);
+        try display.object.conn.wire_conn.out.putUint(display.object.id);
+        try display.object.conn.wire_conn.out.putUint((12 << 16) | 1);
+        try display.object.conn.wire_conn.out.putUint(registry);
         return Registry{
             .object = .{
                 .conn = display.object.conn,
@@ -74,9 +69,9 @@ pub const Connection = struct {
         listener: usize,
     };
 
-    allocator: *mem.Allocator,
     wire_conn: WireConnection,
     object_map: ObjectMap(ObjectData, .client),
+    allocator: *mem.Allocator,
 
     pub fn init(allocator: *mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
@@ -87,38 +82,42 @@ pub const Connection = struct {
                     .io_mode = std.io.mode,
                 };
             }
+
             const display_option = display_name orelse
                 os.getenv("WAYLAND_DISPLAY") orelse "wayland-0";
             if (display_option.len > 0 and display_option[0] == '/') {
                 break :blk try net.connectUnixSocket(display_option);
-            } else {
-                const runtime_dir = os.getenv("XDG_RUNTIME_DIR") orelse
-                    return error.XdgRuntimeDirNotSet;
-                var buf: [os.PATH_MAX]u8 = undefined;
-                var bufalloc = std.heap.FixedBufferAllocator.init(&buf);
-                const path = fs.path.joinPosix(&bufalloc.allocator, &[_][]const u8{
-                    runtime_dir, display_option,
-                }) catch |err| switch (err) {
-                    error.OutOfMemory => {
-                        return error.PathTooLong;
-                    },
-                };
-                break :blk try net.connectUnixSocket(path);
             }
+
+            const runtime_dir = os.getenv("XDG_RUNTIME_DIR") orelse
+                return error.XdgRuntimeDirNotSet;
+
+            var buf: [os.PATH_MAX]u8 = undefined;
+            var bufalloc = std.heap.FixedBufferAllocator.init(&buf);
+            const path = fs.path.joinPosix(&bufalloc.allocator, &[_][]const u8{
+                runtime_dir, display_option,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.PathTooLong,
+            };
+            break :blk try net.connectUnixSocket(path);
         };
+
         var object_map = ObjectMap(ObjectData, .client).init(allocator);
+        errdefer object_map.deinit();
+
         const display_data = try object_map.create(1);
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
             .listener = 0,
         };
+
         const conn = Connection{
-            .allocator = allocator,
             .wire_conn = WireConnection.init(socket),
             .object_map = object_map,
+            .allocator = allocator,
         };
-        // conn.display().setListener(displayListener);
+
         return conn;
     }
 
@@ -136,16 +135,12 @@ pub const Connection = struct {
     }
 
     pub fn display(conn: *Connection) Display {
-        return .{
+        return Display{
             .object = .{
                 .conn = conn,
                 .id = 1,
             },
         };
-    }
-
-    pub fn send(conn: *Connection, id: u32, args: []Argument) !void {
-        inline for (args) |arg| {}
     }
 };
 

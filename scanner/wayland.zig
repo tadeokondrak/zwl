@@ -129,17 +129,17 @@ pub const Entry = struct {
 pub const Arg = struct {
     name: []u8,
     kind: ArgKind,
-    summary: []u8,
-    interface: []u8,
+    summary: ?[]u8,
+    interface: ?[]u8,
     allow_null: bool,
-    @"enum": []u8,
+    @"enum": ?[]u8,
     allocator: *mem.Allocator,
 
     pub fn deinit(arg: *Arg) void {
         arg.allocator.free(arg.name);
-        arg.allocator.free(arg.summary);
-        arg.allocator.free(arg.interface);
-        arg.allocator.free(arg.@"enum");
+        if (arg.summary) |s| arg.allocator.free(s);
+        if (arg.interface) |i| arg.allocator.free(i);
+        if (arg.@"enum") |e| arg.allocator.free(e);
     }
 };
 
@@ -588,29 +588,35 @@ fn parseArgKind(string: []const u8) !ArgKind {
 }
 
 fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
-    var name = std.ArrayList(u8).init(allocator);
-    errdefer name.deinit();
+    var name: ?[]u8 = null;
+    errdefer if (name) |n| allocator.free(n);
     var kind: ArgKind = .new_id;
-    var summary = std.ArrayList(u8).init(allocator);
-    errdefer summary.deinit();
-    var interface = std.ArrayList(u8).init(allocator);
-    errdefer interface.deinit();
+    var summary: ?[]u8 = null;
+    errdefer if (summary) |s| allocator.free(s);
+    var interface: ?[]u8 = null;
+    errdefer if (interface) |i| allocator.free(i);
     var allow_null = false;
-    var @"enum" = std.ArrayList(u8).init(allocator);
-    errdefer @"enum".deinit();
+    var @"enum": ?[]u8 = null;
+    errdefer if (@"enum") |e| allocator.free(e);
     while (parser.next()) |ev| switch (ev) {
         .open => |tag| {
             return error.UnexpectedOpen;
         },
         .attr => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
-                try xml.append(&name, attr.value);
+                if (name != null)
+                    return error.DuplicateName;
+                name = try xml.dupe(allocator, attr.value);
             } else if (mem.eql(u8, attr.name, "type")) {
                 kind = try parseArgKind(attr.value);
             } else if (mem.eql(u8, attr.name, "summary")) {
-                try xml.append(&summary, attr.value);
+                if (summary != null)
+                    return error.DuplicateSummary;
+                summary = try xml.dupe(allocator, attr.value);
             } else if (mem.eql(u8, attr.name, "interface")) {
-                try xml.append(&interface, attr.value);
+                if (interface != null)
+                    return error.DuplicateInterface;
+                interface = try xml.dupe(allocator, attr.value);
             } else if (mem.eql(u8, attr.name, "allow-null")) {
                 if (mem.eql(u8, attr.value, "true")) {
                     allow_null = true;
@@ -618,7 +624,9 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
                     return error.InvalidBool;
                 }
             } else if (mem.eql(u8, attr.name, "enum")) {
-                try xml.append(&@"enum", attr.value);
+                if (@"enum" != null)
+                    return error.DuplicateEnum;
+                @"enum" = try xml.dupe(allocator, attr.value);
             } else {
                 return error.UnexpectedAttr;
             }
@@ -629,12 +637,12 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
         .close => |tag| {
             if (mem.eql(u8, tag, "arg")) {
                 return Arg{
-                    .name = name.toOwnedSlice(),
+                    .name = name orelse return error.ArgNameMissing,
                     .kind = kind,
-                    .summary = summary.toOwnedSlice(),
-                    .interface = interface.toOwnedSlice(),
+                    .summary = summary,
+                    .interface = interface,
                     .allow_null = allow_null,
-                    .@"enum" = @"enum".toOwnedSlice(),
+                    .@"enum" = @"enum",
                     .allocator = allocator,
                 };
             } else {

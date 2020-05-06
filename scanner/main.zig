@@ -76,11 +76,6 @@ const Context = struct {
     }
 
     fn emitProtocol(cx: *Context, proto: wayland.Protocol) !void {
-        try cx.print(
-            \\pub const wayland = @import("wayland.zig");
-            \\
-            \\
-        , .{});
         for (proto.interfaces) |iface| {
             try cx.emitInterface(iface);
         }
@@ -93,15 +88,11 @@ const Context = struct {
         try cx.print(
             \\pub const {1} = struct {{
             \\    proxy: wayland.client.Proxy,
-            \\
-            \\    const interface = "{2}";
-            \\    const version = {3};
-            \\
+            \\    pub const interface = "{2}";
+            \\    pub const version = {3};
             \\    pub fn version({0}: *{1}) u32 {{
             \\        return {0}.proxy.id();
             \\    }}
-            \\
-            \\
         , .{
             var_name,
             type_name,
@@ -112,8 +103,6 @@ const Context = struct {
         try cx.emitMessages(iface.events, "Event");
         try cx.print(
             \\}};
-            \\
-            \\
         , .{});
     }
 
@@ -124,7 +113,7 @@ const Context = struct {
 
     fn emitMessageEnum(cx: *Context, msgs: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const {}Id = enum(u32) {{
+            \\pub const @"{}Id" = enum(u32) {{
         , .{kind});
         for (msgs) |msg, i| {
             try cx.print(
@@ -133,20 +122,18 @@ const Context = struct {
         }
         try cx.print(
             \\}};
-            \\
-            \\
         , .{});
     }
 
     fn emitMessageUnion(cx: *Context, msgs: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const {} = union(MessageId) {{
+            \\pub const @"{0}" = union(@"{0}Id") {{
         , .{kind});
         for (msgs) |msg| {
             const type_name = try cx.typeName(msg.name);
             defer cx.allocator.free(type_name);
             try cx.print(
-                \\@"{}": {},
+                \\@"{}": @"{}",
             , .{ msg.name, type_name });
         }
         try cx.print("\n\n", .{});
@@ -154,8 +141,6 @@ const Context = struct {
             try cx.emitMessageStruct(msg);
         try cx.print(
             \\}};
-            \\
-            \\
         , .{});
     }
 
@@ -163,17 +148,68 @@ const Context = struct {
         const type_name = try cx.typeName(msg.name);
         defer cx.allocator.free(type_name);
         try cx.print(
-            \\pub const {}= struct {{
+            \\pub const @"{0}" = struct {{
         , .{type_name});
         for (msg.args) |arg| {
             try cx.print(
-                \\@"{}": void,
+                \\@"{0}": void,
             , .{arg.name});
         }
         try cx.print(
+            \\pub fn marshal(@"{}": @"{}", __buffer: @import("zwl").Buffer) void {{
+        , .{ msg.name, type_name });
+        for (msg.args) |arg| {
+            switch (arg.kind) {
+                .new_id, .object => if (arg.allow_null) {
+                    try cx.print(
+                        \\try __buffer.putUint(@"{}" orelse 0);
+                    , .{arg.name});
+                } else {
+                    if (arg.interface) |interface| {
+                        // TODO
+                    } else {
+                        try cx.print(
+                            \\try __buffer.putUint(@"{}");
+                        , .{arg.name});
+                    }
+                },
+                .int => {
+                    try cx.print(
+                        \\try __buffer.putInt(@"{}");
+                    , .{arg.name});
+                },
+                .uint => {
+                    try cx.print(
+                        \\try __buffer.putUint(@"{}");
+                    , .{arg.name});
+                },
+                .fixed => {
+                    try cx.print(
+                        \\try __buffer.putFixed(@"{}");
+                    , .{arg.name});
+                },
+                .string => {
+                    try cx.print(
+                        \\try __buffer.putString(@"{}");
+                    , .{arg.name});
+                },
+                .array => {
+                    try cx.print(
+                        \\try __buffer.putArray(@"{}");
+                    , .{arg.name});
+                },
+                .fd => {
+                    try cx.print(
+                        \\try __buffer.putFd(@"{}");
+                    , .{arg.name});
+                },
+            }
+        }
+        try cx.print(
+            \\}}
+        , .{});
+        try cx.print(
             \\}};
-            \\
-            \\
         , .{});
     }
 };
