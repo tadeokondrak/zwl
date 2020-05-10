@@ -156,52 +156,44 @@ const Context = struct {
             , .{arg.name});
         }
         try cx.print(
-            \\pub fn marshal(@"{}": @"{}", __buffer: @import("zwl").Buffer) void {{
+            \\pub fn marshal(@"{}": @"{}", __buffer: *@import("zwl").Buffer) void {{
         , .{ msg.name, type_name });
         for (msg.args) |arg| {
             switch (arg.kind) {
                 .new_id, .object => if (arg.allow_null) {
                     try cx.print(
-                        \\try __buffer.putUint(@"{}" orelse 0);
-                    , .{arg.name});
-                } else {
-                    if (arg.interface) |interface| {
-                        // TODO
-                    } else {
-                        try cx.print(
-                            \\try __buffer.putUint(@"{}");
-                        , .{arg.name});
-                    }
+                        \\try __buffer.putUint(@"{}".@"{}".proxy.id);
+                    , .{ msg.name, arg.name });
                 },
                 .int => {
                     try cx.print(
-                        \\try __buffer.putInt(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putInt(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
                 .uint => {
                     try cx.print(
-                        \\try __buffer.putUint(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putUint(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
                 .fixed => {
                     try cx.print(
-                        \\try __buffer.putFixed(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putFixed(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
                 .string => {
                     try cx.print(
-                        \\try __buffer.putString(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putString(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
                 .array => {
                     try cx.print(
-                        \\try __buffer.putArray(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putArray(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
                 .fd => {
                     try cx.print(
-                        \\try __buffer.putFd(@"{}");
-                    , .{arg.name});
+                        \\try __buffer.putFd(@"{}".@"{}");
+                    , .{ msg.name, arg.name });
                 },
             }
         }
