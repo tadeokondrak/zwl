@@ -79,7 +79,6 @@ pub const Connection = struct {
                 // TODO: set CLOEXEC and unset environment variable
                 break :blk fs.File{
                     .handle = try std.fmt.parseInt(c_int, wayland_socket, 10),
-                    .io_mode = std.io.mode,
                 };
             }
 
