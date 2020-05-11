@@ -20,7 +20,6 @@ pub fn main() !void {
         .out = std.ArrayList(u8).init(allocator),
         .allocator = allocator,
     };
-    defer cx.deinit();
     try cx.emitProtocol(protocol);
 
     var tree = try std.zig.parse(allocator, cx.out.items);
@@ -34,19 +33,14 @@ const Context = struct {
     out: std.ArrayList(u8),
     allocator: *mem.Allocator,
 
-    fn deinit(cx: *Context) void {
-        cx.out.deinit();
-    }
-
     fn print(cx: *Context, comptime fmt: []const u8, args: var) !void {
         return cx.out.outStream().print(fmt, args);
     }
 
     fn trim(cx: *Context, name: []const u8) []const u8 {
         var name_ = name;
-        if (mem.startsWith(u8, name_, cx.prefix)) {
+        if (mem.startsWith(u8, name_, cx.prefix))
             name_ = name_[cx.prefix.len..];
-        }
         return name_;
     }
 
@@ -67,12 +61,33 @@ const Context = struct {
         return new.toOwnedSlice();
     }
 
-    fn fnName(cx: *Context, name: []const u8) ![]u8 {
-        return cx.recase(name, false);
+    fn isValidZigIdentifier(name: []const u8) bool {
+        for (name) |c, i| {
+            switch (c) {
+                '_', 'a'...'z', 'A'...'Z' => {},
+                '0'...'9' => if (i == 0) return false,
+                else => return false,
+            }
+        }
+        return std.zig.Token.getKeyword(name) == null;
     }
 
-    fn typeName(cx: *Context, name: []const u8) ![]u8 {
-        return cx.recase(name, true);
+    fn identifier(cx: *Context, name: []const u8) ![]u8 {
+        if (isValidZigIdentifier(name))
+            return std.mem.dupe(cx.allocator, u8, name);
+        return std.fmt.allocPrint(cx.allocator, "@\"{}\"", .{name});
+    }
+
+    fn snakeCase(cx: *Context, name: []const u8) ![]u8 {
+        return cx.identifier(name);
+    }
+
+    fn camelCase(cx: *Context, name: []const u8) ![]u8 {
+        return cx.identifier(try cx.recase(name, false));
+    }
+
+    fn pascalCase(cx: *Context, name: []const u8) ![]u8 {
+        return cx.identifier(try cx.recase(name, true));
     }
 
     fn emitProtocol(cx: *Context, proto: wayland.Protocol) !void {
@@ -82,19 +97,15 @@ const Context = struct {
     }
 
     fn emitInterface(cx: *Context, iface: wayland.Interface) !void {
-        const var_name = cx.trim(iface.name);
-        const type_name = try cx.typeName(var_name);
-        defer cx.allocator.free(type_name);
+        const trimmed = cx.trim(iface.name);
+        const var_name = try cx.snakeCase(trimmed);
+        const type_name = try cx.pascalCase(trimmed);
         try cx.print(
-            \\pub const {1} = struct {{
-            \\    proxy: wayland.client.Proxy,
-            \\    pub const interface = "{2}";
-            \\    pub const version = {3};
-            \\    pub fn version({0}: *{1}) u32 {{
-            \\        return {0}.proxy.id();
-            \\    }}
+            \\pub const {0} = struct {{
+            \\    object: wayland.client.Object,
+            \\    pub const interface = "{1}";
+            \\    pub const version = {2};
         , .{
-            var_name,
             type_name,
             iface.name,
             iface.version,
@@ -113,12 +124,15 @@ const Context = struct {
 
     fn emitMessageEnum(cx: *Context, msgs: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const @"{}Id" = enum(u32) {{
+            \\pub const {}Id = enum(u32) {{
         , .{kind});
         for (msgs) |msg, i| {
             try cx.print(
-                \\@"{}" = {},
-            , .{ msg.name, i });
+                \\{} = {},
+            , .{
+                try cx.snakeCase(msg.name),
+                i,
+            });
         }
         try cx.print(
             \\}};
@@ -127,73 +141,154 @@ const Context = struct {
 
     fn emitMessageUnion(cx: *Context, msgs: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const @"{0}" = union(@"{0}Id") {{
+            \\pub const {0} = union({0}Id) {{
         , .{kind});
         for (msgs) |msg| {
-            const type_name = try cx.typeName(msg.name);
-            defer cx.allocator.free(type_name);
             try cx.print(
-                \\@"{}": @"{}",
-            , .{ msg.name, type_name });
+                \\{}: {},
+            , .{
+                try cx.snakeCase(msg.name),
+                try cx.pascalCase(msg.name),
+            });
         }
-        try cx.print("\n\n", .{});
         for (msgs) |msg|
-            try cx.emitMessageStruct(msg);
+            try cx.emitMessageStruct(msg, kind);
         try cx.print(
             \\}};
         , .{});
     }
 
-    fn emitMessageStruct(cx: *Context, msg: var) !void {
-        const type_name = try cx.typeName(msg.name);
-        defer cx.allocator.free(type_name);
+    fn emitMessageStruct(cx: *Context, msg: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const @"{0}" = struct {{
-        , .{type_name});
+            \\pub const {} = struct {{
+        , .{try cx.pascalCase(msg.name)});
         for (msg.args) |arg| {
             try cx.print(
-                \\@"{0}": void,
-            , .{arg.name});
+                \\{}: void,
+            , .{
+                try cx.snakeCase(arg.name),
+            });
         }
         try cx.print(
-            \\pub fn marshal(@"{}": @"{}", __buffer: *@import("zwl").Buffer) void {{
-        , .{ msg.name, type_name });
+            \\pub fn marshal({}: {}, _buffer: *wayland.Buffer)
+            \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
+        , .{
+            try cx.snakeCase(msg.name),
+            try cx.pascalCase(msg.name),
+        });
+        var size_bytes: u32 = 8;
+        var size_fds: u32 = 0;
+        var extra = std.ArrayList(u8).init(cx.allocator);
+        for (msg.args) |arg| switch (arg.kind) {
+            .new_id => {
+                if (arg.interface == null and std.mem.eql(u8, kind, "Request")) {
+                    size_bytes += 12;
+                    try extra.outStream().print("+ {}.{}.len", .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
+                } else {
+                    size_bytes += 4;
+                }
+            },
+            .int, .uint, .fixed, .object => {
+                size_bytes += 4;
+            },
+            .string => {
+                size_bytes += 4;
+                try extra.outStream().print("+ {}.{}.len", .{
+                    try cx.snakeCase(msg.name),
+                    try cx.snakeCase(arg.name),
+                });
+            },
+            .array => {
+                size_bytes += 4;
+                try extra.outStream().print("+ {}.{}.len", .{
+                    try cx.snakeCase(msg.name),
+                    try cx.snakeCase(arg.name),
+                });
+            },
+            .fd => {
+                size_fds += 1;
+            },
+        };
+        try cx.print(
+            \\if (_buffer.bytes.writable() < ({0}{1})) return error.BytesBufferFull;
+            \\if (_buffer.fds.writable() < ({2})) return error.FdsBufferFull;
+            \\_buffer.putUint({3}.object.id) catch unreachable;
+            \\_buffer.putUint((({0}{1}) << 16) | @enumToInt({4}Id.{5})) catch unreachable;
+        , .{
+            size_bytes,
+            extra.items,
+            size_fds,
+            try cx.snakeCase(msg.name),
+            kind,
+            try cx.snakeCase(msg.name),
+        });
         for (msg.args) |arg| {
             switch (arg.kind) {
                 .new_id, .object => if (arg.allow_null) {
                     try cx.print(
-                        \\try __buffer.putUint(@"{}".@"{}".proxy.id);
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putUint({}.{}.object.id) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
+                } else {
+                    try cx.print(
+                        \\_buffer.putUint({}.{}.object.id) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .int => {
                     try cx.print(
-                        \\try __buffer.putInt(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putInt({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .uint => {
                     try cx.print(
-                        \\try __buffer.putUint(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putUint({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .fixed => {
                     try cx.print(
-                        \\try __buffer.putFixed(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putFixed({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .string => {
                     try cx.print(
-                        \\try __buffer.putString(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putString({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .array => {
                     try cx.print(
-                        \\try __buffer.putArray(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putArray({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
                 .fd => {
                     try cx.print(
-                        \\try __buffer.putFd(@"{}".@"{}");
-                    , .{ msg.name, arg.name });
+                        \\_buffer.putFd({}.{}) catch unreachable;
+                    , .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
                 },
             }
         }

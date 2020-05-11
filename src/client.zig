@@ -14,55 +14,6 @@ pub const Object = struct {
     id: u32,
 };
 
-pub const Display = struct {
-    object: Object,
-
-    pub fn sync(display: *Display) !Callback {
-        const callback = (try display.object.conn.object_map.create(null)).id;
-        try display.object.conn.wire_conn.out.putUint(display.object.id);
-        try display.object.conn.wire_conn.out.putUint((12 << 16) | 0);
-        try display.object.conn.wire_conn.out.putUint(callback);
-        return Callback{
-            .object = .{
-                .conn = display.object.conn,
-                .id = callback,
-            },
-        };
-    }
-
-    pub fn getRegistry(display: *Display) !Registry {
-        const registry = (try display.object.conn.object_map.create(null)).id;
-        try display.object.conn.wire_conn.out.putUint(display.object.id);
-        try display.object.conn.wire_conn.out.putUint((12 << 16) | 1);
-        try display.object.conn.wire_conn.out.putUint(registry);
-        return Registry{
-            .object = .{
-                .conn = display.object.conn,
-                .id = registry,
-            },
-        };
-    }
-};
-
-pub const Registry = struct {
-    object: Object,
-};
-
-pub const Callback = struct {
-    object: Object,
-};
-
-pub const Argument = union(enum) {
-    int: i32,
-    uint: u32,
-    fixed: f64,
-    object: u32,
-    new_id: u32,
-    string: []const u8,
-    array: []const u8,
-    fd: fd_t,
-};
-
 pub const Connection = struct {
     const ObjectData = struct {
         version: u32,
@@ -153,14 +104,6 @@ test "Connection: raw request globals" {
     try conn.wire_conn.out.putUint(1);
     try conn.wire_conn.out.putUint((12 << 16) | 1);
     try conn.wire_conn.out.putUint(2);
-    try conn.flush();
-    try conn.read();
-}
-
-test "Connection: request globals" {
-    var conn = try Connection.init(std.testing.allocator, null);
-    defer conn.deinit();
-    _ = try conn.display().getRegistry();
     try conn.flush();
     try conn.read();
 }

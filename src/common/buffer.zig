@@ -43,10 +43,10 @@ pub const Buffer = struct {
         if (buf.bytes.readable() < 4)
             return null;
         const bytes: [4]u8 align(4) = .{
-            buf.bytes.popFront() orelse unreachable,
-            buf.bytes.popFront() orelse unreachable,
-            buf.bytes.popFront() orelse unreachable,
-            buf.bytes.popFront() orelse unreachable,
+            buf.bytes.popFront().?,
+            buf.bytes.popFront().?,
+            buf.bytes.popFront().?,
+            buf.bytes.popFront().?,
         };
         return std.mem.bytesToValue(i32, &bytes);
     }
