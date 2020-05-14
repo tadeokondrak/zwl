@@ -6,6 +6,7 @@ const net = std.net;
 const fd_t = os.fd_t;
 const assert = std.debug.assert;
 
+const wl = @import("wl.zig");
 const WireConnection = @import("common/wire_connection.zig").WireConnection;
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
@@ -84,8 +85,8 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
-    pub fn display(conn: *Connection) Display {
-        return Display{
+    pub fn display(conn: *Connection) wl.Display {
+        return wl.Display{
             .object = .{
                 .conn = conn,
                 .id = 1,
