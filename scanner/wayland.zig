@@ -533,7 +533,10 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
                     return error.DuplicateName;
                 name = try xml.dupe(allocator, attr.value);
             } else if (mem.eql(u8, attr.name, "value")) {
-                // TODO: parse value
+                if (mem.startsWith(u8, attr.value, "0x"))
+                    value = try std.fmt.parseInt(u32, attr.value[2..], 16)
+                else
+                    value = try std.fmt.parseInt(u32, attr.value, 10);
             } else if (mem.eql(u8, attr.name, "summary")) {
                 if (summary != null)
                     return error.DuplicateSummary;
