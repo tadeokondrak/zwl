@@ -129,7 +129,7 @@ const Context = struct {
 
     fn emitMessageEnum(cx: *Context, msgs: var, kind: []const u8) !void {
         try cx.print(
-            \\pub const {}Id = enum(u32) {{
+            \\pub const {}Id = enum(u16) {{
         , .{kind});
         for (msgs) |msg, i| {
             try cx.print(
@@ -311,7 +311,7 @@ const Context = struct {
 
     fn emitMarshal(cx: *Context, msg: var, kind: []const u8) !void {
         try cx.print(
-            \\pub fn marshal({}: {}, _id: u32, _buffer: *wayland.Buffer)
+            \\pub fn marshal({}: {}, _id: u32, _buf: *wayland.Buffer)
             \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
         , .{
             try cx.snakeCase(msg.name),
@@ -354,13 +354,13 @@ const Context = struct {
             },
         };
         try cx.print(
-            \\if (_buffer.bytes.writable() < ({0}{1}))
+            \\if (_buf.bytes.writable() < ({0}{1}))
             \\    return error.BytesBufferFull;
-            \\if (_buffer.fds.writable() < ({2}))
+            \\if (_buf.fds.writable() < ({2}))
             \\    return error.FdsBufferFull;
-            \\_buffer.putUint(_id)
+            \\_buf.putUint(_id)
             \\    catch unreachable;
-            \\_buffer.putUint((({0}{1}) << 16) | @enumToInt({3}Id.{4}))
+            \\_buf.putUint((({0}{1}) << 16) | @enumToInt({3}Id.{4}))
             \\    catch unreachable;
         , .{
             size_bytes,
@@ -373,14 +373,14 @@ const Context = struct {
             switch (arg.kind) {
                 .new_id, .object => if (arg.allow_null) {
                     try cx.print(
-                        \\_buffer.putUint({}.{}.object.id) catch unreachable;
+                        \\_buf.putUint({}.{}.object.id) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
                     });
                 } else {
                     try cx.print(
-                        \\_buffer.putUint({}.{}.object.id) catch unreachable;
+                        \\_buf.putUint({}.{}.object.id) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -388,7 +388,7 @@ const Context = struct {
                 },
                 .int => {
                     try cx.print(
-                        \\_buffer.putInt({}.{}) catch unreachable;
+                        \\_buf.putInt({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -396,7 +396,7 @@ const Context = struct {
                 },
                 .uint => {
                     try cx.print(
-                        \\_buffer.putUint({}.{}) catch unreachable;
+                        \\_buf.putUint({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -404,7 +404,7 @@ const Context = struct {
                 },
                 .fixed => {
                     try cx.print(
-                        \\_buffer.putFixed({}.{}) catch unreachable;
+                        \\_buf.putFixed({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -412,7 +412,7 @@ const Context = struct {
                 },
                 .string => {
                     try cx.print(
-                        \\_buffer.putString({}.{}) catch unreachable;
+                        \\_buf.putString({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -420,7 +420,7 @@ const Context = struct {
                 },
                 .array => {
                     try cx.print(
-                        \\_buffer.putArray({}.{}) catch unreachable;
+                        \\_buf.putArray({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -428,7 +428,7 @@ const Context = struct {
                 },
                 .fd => {
                     try cx.print(
-                        \\_buffer.putFd({}.{}) catch unreachable;
+                        \\_buf.putFd({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -443,7 +443,7 @@ const Context = struct {
 
     fn emitUnmarshal(cx: *Context, message: var, kind: []const u8) !void {
         try cx.print(
-            \\pub fn unmarshal(_buffer: wayland.Buffer) {} {{
+            \\pub fn unmarshal(_msg: []const u8, _fds: wayland.Buffer) {} {{
         , .{
             try cx.pascalCase(message.name),
         });

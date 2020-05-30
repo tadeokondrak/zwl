@@ -1,5 +1,6 @@
 const std = @import("std");
 const RingBuffer = @import("ring_buffer.zig").RingBuffer;
+const Message = @import("message.zig").Message;
 const fd_t = std.os.fd_t;
 
 pub const Buffer = struct {
@@ -12,6 +13,44 @@ pub const Buffer = struct {
         return .{
             .bytes = RingBuffer(u8, 4096).init(),
             .fds = RingBuffer(fd_t, 512).init(),
+        };
+    }
+
+    pub fn getMessage(buf: *Buffer) ?Message {
+        if (buf.bytes.readable() < 8)
+            return null;
+
+        const id_data: [4]u8 align(4) = .{
+            buf.bytes.data[buf.bytes.head +% 0],
+            buf.bytes.data[buf.bytes.head +% 1],
+            buf.bytes.data[buf.bytes.head +% 2],
+            buf.bytes.data[buf.bytes.head +% 3],
+        };
+        const id = std.mem.bytesToValue(u32, &id_data);
+
+        const op_len_data: [4]u8 align(4) = .{
+            buf.bytes.data[buf.bytes.head +% 4],
+            buf.bytes.data[buf.bytes.head +% 5],
+            buf.bytes.data[buf.bytes.head +% 6],
+            buf.bytes.data[buf.bytes.head +% 7],
+        };
+        const op_len = std.mem.bytesToValue(u32, &op_len_data);
+
+        const len = @intCast(u12, op_len >> 16);
+        const op = @intCast(u16, op_len & 0xffff);
+
+        if (buf.bytes.readable() < len)
+            return null;
+
+        buf.bytes.ensureContiguous(len);
+
+        const data = buf.bytes.readSlices()[0][8..len];
+        buf.bytes.head +%= len;
+
+        return Message{
+            .id = id,
+            .op = op,
+            .data = data,
         };
     }
 
@@ -37,38 +76,6 @@ pub const Buffer = struct {
 
     pub fn putFd(buf: *Buffer, fd: fd_t) Error!void {
         try buf.fds.pushBack(fd);
-    }
-
-    pub fn getInt(buf: *Buffer) ?i32 {
-        if (buf.bytes.readable() < 4)
-            return null;
-        const bytes: [4]u8 align(4) = .{
-            buf.bytes.popFront().?,
-            buf.bytes.popFront().?,
-            buf.bytes.popFront().?,
-            buf.bytes.popFront().?,
-        };
-        return std.mem.bytesToValue(i32, &bytes);
-    }
-
-    pub fn getUint(buf: *Buffer) ?u32 {
-        return @bitCast(u32, buf.getInt() orelse return null);
-    }
-
-    pub fn getFixed(buf: *Buffer) ?f64 {
-        unreachable;
-    }
-
-    pub fn getString(buf: *Buffer) ?[]const u8 {
-        unreachable;
-    }
-
-    pub fn getArray(buf: *Buffer) ?[]const u8 {
-        unreachable;
-    }
-
-    pub fn getFd(buf: *Buffer) ?fd_t {
-        return buf.fds.popFront();
     }
 };
 
