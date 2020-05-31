@@ -171,18 +171,7 @@ pub fn parseFile(allocator: *mem.Allocator, file: []const u8) !Protocol {
         .open_tag => |tag| {
             if (mem.eql(u8, tag, "protocol")) {
                 return try parseProtocol(allocator, &parser);
-            } else {
-                return error.UnexpectedOpen;
             }
-        },
-        .attribute => |attr| {
-            return error.UnexpectedEvent;
-        },
-        .character_data => |text| {
-            return error.UnexpectedEvent;
-        },
-        .close_tag => |tag| {
-            return error.NoProtocol;
         },
         else => {},
     };
@@ -212,8 +201,6 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
                 var iface = try parseInterface(allocator, parser);
                 errdefer iface.deinit();
                 try interfaces.append(iface);
-            } else {
-                return error.UnexpectedOpen;
             }
         },
         .attribute => |attr| {
@@ -221,12 +208,7 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
                 if (name != null)
                     return error.DuplicateName;
                 name = try attr.dupeValue(allocator);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "protocol")) {
@@ -237,8 +219,6 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
                     .interfaces = interfaces.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -250,12 +230,6 @@ fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
     var content = std.ArrayList(u8).init(allocator);
     errdefer content.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open_tag => |tag| {
-            return error.UnexpectedOpen;
-        },
-        .attribute => |attr| {
-            return error.UnexpectedAttr;
-        },
         .character_data => |text| {
             try content.appendSlice(text);
         },
@@ -265,8 +239,6 @@ fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
                     .content = content.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -304,8 +276,6 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                 var enm = try parseEnum(allocator, parser);
                 errdefer enm.deinit();
                 try enums.append(enm);
-            } else {
-                return error.UnexpectedElem;
             }
         },
         .attribute => |attr| {
@@ -317,12 +287,7 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                 const value = try attr.dupeValue(allocator);
                 defer allocator.free(value);
                 version = try std.fmt.parseInt(u32, value, 10);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "interface")) {
@@ -335,8 +300,6 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                     .enums = enums.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -363,8 +326,6 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                 var arg = try parseArg(allocator, parser);
                 errdefer arg.deinit();
                 try args.append(arg);
-            } else {
-                return error.UnexpectedOpen;
             }
         },
         .attribute => |attr| {
@@ -382,12 +343,7 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                 const value = try attr.dupeValue(allocator);
                 errdefer allocator.free(value);
                 since = try std.fmt.parseInt(u32, value, 10);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "request")) {
@@ -399,8 +355,6 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                     .args = args.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -426,8 +380,6 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
                 var arg = try parseArg(allocator, parser);
                 errdefer arg.deinit();
                 try args.append(arg);
-            } else {
-                return error.UnexpectedOpen;
             }
         },
         .attribute => |attr| {
@@ -441,12 +393,7 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
                 const value = try attr.dupeValue(allocator);
                 defer allocator.free(value);
                 since = try std.fmt.parseInt(u32, value, 10);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "event")) {
@@ -457,8 +404,6 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
                     .args = args.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -485,8 +430,6 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                 var ent = try parseEntry(allocator, parser);
                 errdefer ent.deinit();
                 try entries.append(ent);
-            } else {
-                return error.UnexpectedOpen;
             }
         },
         .attribute => |attr| {
@@ -504,12 +447,7 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                 } else {
                     return error.InvalidBool;
                 }
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "enum")) {
@@ -521,8 +459,6 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                     .entries = entries.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -539,9 +475,6 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
     var since: u32 = 1;
     var description: ?Description = null;
     while (parser.next()) |ev| switch (ev) {
-        .open_tag => |tag| {
-            return error.UnexpectedOpen;
-        },
         .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
@@ -562,12 +495,7 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
                 const attrvalue = try attr.dupeValue(allocator);
                 defer allocator.free(attrvalue);
                 since = try std.fmt.parseInt(u32, attrvalue, 10);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "entry")) {
@@ -579,8 +507,6 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
                     .description = description,
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -622,9 +548,6 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
     var @"enum": ?[]u8 = null;
     errdefer if (@"enum") |e| allocator.free(e);
     while (parser.next()) |ev| switch (ev) {
-        .open_tag => |tag| {
-            return error.UnexpectedOpen;
-        },
         .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
@@ -652,12 +575,7 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
                 if (@"enum" != null)
                     return error.DuplicateEnum;
                 @"enum" = try attr.dupeValue(allocator);
-            } else {
-                return error.UnexpectedAttr;
             }
-        },
-        .character_data => |text| {
-            return error.UnexpectedText;
         },
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "arg")) {
@@ -670,8 +588,6 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
                     .@"enum" = @"enum",
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
@@ -685,14 +601,9 @@ fn parseDescription(allocator: *mem.Allocator, parser: *xml.Parser) !Description
     var content = std.ArrayList(u8).init(allocator);
     errdefer content.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open_tag => |tag| {
-            return error.UnexpectedOpen;
-        },
         .attribute => |attr| {
             if (mem.eql(u8, attr.name, "summary")) {
                 summary = try attr.dupeValue(allocator);
-            } else {
-                return error.UnexpectedAttr;
             }
         },
         .character_data => |text| {
@@ -705,8 +616,6 @@ fn parseDescription(allocator: *mem.Allocator, parser: *xml.Parser) !Description
                     .content = content.toOwnedSlice(),
                     .allocator = allocator,
                 };
-            } else {
-                return error.UnexpectedClose;
             }
         },
         else => {},
