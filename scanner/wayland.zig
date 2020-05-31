@@ -168,22 +168,23 @@ pub const Description = struct {
 pub fn parseFile(allocator: *mem.Allocator, file: []const u8) !Protocol {
     var parser = xml.Parser.init(file);
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "protocol")) {
                 return try parseProtocol(allocator, &parser);
             } else {
                 return error.UnexpectedOpen;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             return error.UnexpectedEvent;
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedEvent;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             return error.NoProtocol;
         },
+        else => {},
     };
     return error.NoProtocol;
 }
@@ -198,7 +199,7 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
     var interfaces = std.ArrayList(Interface).init(allocator);
     errdefer interfaces.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "copyright")) {
                 if (copyright != null)
                     return error.DuplicateCopyright;
@@ -215,19 +216,19 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
                 return error.UnexpectedOpen;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "protocol")) {
                 return Protocol{
                     .name = name orelse return error.ProtocolNameMissing,
@@ -240,6 +241,7 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -248,16 +250,16 @@ fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
     var content = std.ArrayList(u8).init(allocator);
     errdefer content.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             return error.UnexpectedOpen;
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             return error.UnexpectedAttr;
         },
-        .text => |text| {
-            try xml.append(&content, text);
+        .character_data => |text| {
+            try content.appendSlice(text);
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "copyright")) {
                 return Copyright{
                     .content = content.toOwnedSlice(),
@@ -267,6 +269,7 @@ fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -284,7 +287,7 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
     var enums = std.ArrayList(Enum).init(allocator);
     errdefer enums.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "description")) {
                 if (description != null)
                     return error.DuplicateDescription;
@@ -305,21 +308,23 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                 return error.UnexpectedElem;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "version")) {
-                version = try std.fmt.parseInt(u32, attr.value, 10);
+                const value = try attr.dupeValue(allocator);
+                defer allocator.free(value);
+                version = try std.fmt.parseInt(u32, value, 10);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "interface")) {
                 return Interface{
                     .name = name orelse return error.InterfaceNameMissing,
@@ -334,6 +339,7 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -348,7 +354,7 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
     var args = std.ArrayList(Arg).init(allocator);
     errdefer args.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "description")) {
                 if (description != null)
                     return error.DuplicateDescription;
@@ -361,27 +367,29 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                 return error.UnexpectedOpen;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "type")) {
-                if (mem.eql(u8, attr.value, "destructor")) {
+                if (attr.valueEql("destructor")) {
                     destructor = true;
                 } else {
                     return error.InvalidRequestType;
                 }
             } else if (mem.eql(u8, attr.name, "since")) {
-                since = try std.fmt.parseInt(u32, attr.value, 10);
+                const value = try attr.dupeValue(allocator);
+                errdefer allocator.free(value);
+                since = try std.fmt.parseInt(u32, value, 10);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "request")) {
                 return Request{
                     .name = name orelse return error.RequestNameMissing,
@@ -395,6 +403,7 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -408,7 +417,7 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
     var args = std.ArrayList(Arg).init(allocator);
     errdefer args.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "description")) {
                 if (description != null)
                     return error.DuplicateDescription;
@@ -421,23 +430,25 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
                 return error.UnexpectedOpen;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "since")) {
                 if (since != null)
                     return error.DuplicateSince;
-                since = try std.fmt.parseInt(u32, attr.value, 10);
+                const value = try attr.dupeValue(allocator);
+                defer allocator.free(value);
+                since = try std.fmt.parseInt(u32, value, 10);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "event")) {
                 return Event{
                     .name = name orelse return error.EventNameMissing,
@@ -450,6 +461,7 @@ fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -464,7 +476,7 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
     var entries = std.ArrayList(Entry).init(allocator);
     errdefer entries.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             if (mem.eql(u8, tag, "description")) {
                 if (description != null)
                     return error.DuplicateDescription;
@@ -477,15 +489,17 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                 return error.UnexpectedOpen;
             }
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "since")) {
-                since = try std.fmt.parseInt(u32, attr.value, 10);
+                const value = try attr.dupeValue(allocator);
+                defer allocator.free(value);
+                since = try std.fmt.parseInt(u32, value, 10);
             } else if (mem.eql(u8, attr.name, "bitfield")) {
-                if (mem.eql(u8, attr.value, "true")) {
+                if (attr.valueEql("true")) {
                     bitfield = true;
-                } else if (mem.eql(u8, attr.value, "false")) {
+                } else if (attr.valueEql("false")) {
                     bitfield = false;
                 } else {
                     return error.InvalidBool;
@@ -494,10 +508,10 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "enum")) {
                 return Enum{
                     .name = name orelse return error.EnumNameMissing,
@@ -511,6 +525,7 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -524,33 +539,37 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
     var since: u32 = 1;
     var description: ?Description = null;
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             return error.UnexpectedOpen;
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "value")) {
-                if (mem.startsWith(u8, attr.value, "0x"))
-                    value = try std.fmt.parseInt(u32, attr.value[2..], 16)
+                const attrvalue = try attr.dupeValue(allocator);
+                defer allocator.free(attrvalue);
+                if (attr.valueStartsWith("0x"))
+                    value = try std.fmt.parseInt(u32, attrvalue[2..], 16)
                 else
-                    value = try std.fmt.parseInt(u32, attr.value, 10);
+                    value = try std.fmt.parseInt(u32, attrvalue, 10);
             } else if (mem.eql(u8, attr.name, "summary")) {
                 if (summary != null)
                     return error.DuplicateSummary;
-                summary = try xml.dupe(allocator, attr.value);
+                summary = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "since")) {
-                since = try std.fmt.parseInt(u32, attr.value, 10);
+                const attrvalue = try attr.dupeValue(allocator);
+                defer allocator.free(attrvalue);
+                since = try std.fmt.parseInt(u32, attrvalue, 10);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "entry")) {
                 return Entry{
                     .name = name orelse return error.EntryNameMissing,
@@ -564,6 +583,7 @@ fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -602,42 +622,44 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
     var @"enum": ?[]u8 = null;
     errdefer if (@"enum") |e| allocator.free(e);
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             return error.UnexpectedOpen;
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
                 if (name != null)
                     return error.DuplicateName;
-                name = try xml.dupe(allocator, attr.value);
+                name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "type")) {
-                kind = try parseArgKind(attr.value);
+                const value = try attr.dupeValue(allocator);
+                defer allocator.free(value);
+                kind = try parseArgKind(value);
             } else if (mem.eql(u8, attr.name, "summary")) {
                 if (summary != null)
                     return error.DuplicateSummary;
-                summary = try xml.dupe(allocator, attr.value);
+                summary = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "interface")) {
                 if (interface != null)
                     return error.DuplicateInterface;
-                interface = try xml.dupe(allocator, attr.value);
+                interface = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "allow-null")) {
-                if (mem.eql(u8, attr.value, "true")) {
+                if (attr.valueEql("true")) {
                     allow_null = true;
-                } else if (!mem.eql(u8, attr.value, "false")) {
+                } else if (!attr.valueEql("false")) {
                     return error.InvalidBool;
                 }
             } else if (mem.eql(u8, attr.name, "enum")) {
                 if (@"enum" != null)
                     return error.DuplicateEnum;
-                @"enum" = try xml.dupe(allocator, attr.value);
+                @"enum" = try attr.dupeValue(allocator);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
+        .character_data => |text| {
             return error.UnexpectedText;
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "arg")) {
                 return Arg{
                     .name = name orelse return error.ArgNameMissing,
@@ -652,6 +674,7 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
@@ -662,20 +685,20 @@ fn parseDescription(allocator: *mem.Allocator, parser: *xml.Parser) !Description
     var content = std.ArrayList(u8).init(allocator);
     errdefer content.deinit();
     while (parser.next()) |ev| switch (ev) {
-        .open => |tag| {
+        .open_tag => |tag| {
             return error.UnexpectedOpen;
         },
-        .attr => |attr| {
+        .attribute => |attr| {
             if (mem.eql(u8, attr.name, "summary")) {
-                summary = try xml.dupe(allocator, attr.value);
+                summary = try attr.dupeValue(allocator);
             } else {
                 return error.UnexpectedAttr;
             }
         },
-        .text => |text| {
-            try xml.append(&content, text);
+        .character_data => |text| {
+            try content.appendSlice(text);
         },
-        .close => |tag| {
+        .close_tag => |tag| {
             if (mem.eql(u8, tag, "description")) {
                 return Description{
                     .summary = summary orelse return error.DescriptionSummaryMissing,
@@ -686,6 +709,7 @@ fn parseDescription(allocator: *mem.Allocator, parser: *xml.Parser) !Description
                 return error.UnexpectedClose;
             }
         },
+        else => {},
     };
     return error.UnexpectedEof;
 }
