@@ -3,8 +3,6 @@ const xml = @import("xml.zig");
 const wayland = @import("wayland.zig");
 const mem = std.mem;
 
-pub fn parseArgs() !void {}
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -91,6 +89,35 @@ const Context = struct {
         return try cx.identifier(try cx.recase(name, true));
     }
 
+    fn argType(cx: *Context, arg: wayland.Arg) ![]const u8 {
+        return switch (arg.kind) {
+            .new_id => blk: {
+                var name = if (arg.interface) |i|
+                    cx.pascalCase(cx.trim(i))
+                else
+                    "wayland.client.Object";
+                if (arg.allow_null)
+                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
+                return name;
+            },
+            .int => "i32",
+            .uint => "u32",
+            .fixed => "f64",
+            .string => if (arg.allow_null) "?[]const u8" else "[]const u8",
+            .object => {
+                var name = if (arg.interface) |i|
+                    cx.pascalCase(cx.trim(i))
+                else
+                    "wayland.client.Object";
+                if (arg.allow_null)
+                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
+                return name;
+            },
+            .array => "[]const u8",
+            .fd => "std.os.fd_t",
+        };
+    }
+
     fn emitProtocol(cx: *Context, proto: wayland.Protocol) !void {
         try cx.print(
             \\const std = @import("std");
@@ -161,35 +188,6 @@ const Context = struct {
         try cx.print(
             \\}};
         , .{});
-    }
-
-    fn argType(cx: *Context, arg: wayland.Arg) ![]const u8 {
-        return switch (arg.kind) {
-            .new_id => blk: {
-                var name = if (arg.interface) |i|
-                    cx.pascalCase(cx.trim(i))
-                else
-                    "wayland.client.Object";
-                if (arg.allow_null)
-                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
-                return name;
-            },
-            .int => "i32",
-            .uint => "u32",
-            .fixed => "f64",
-            .string => if (arg.allow_null) "?[]const u8" else "[]const u8",
-            .object => {
-                var name = if (arg.interface) |i|
-                    cx.pascalCase(cx.trim(i))
-                else
-                    "wayland.client.Object";
-                if (arg.allow_null)
-                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
-                return name;
-            },
-            .array => "[]const u8",
-            .fd => "std.os.fd_t",
-        };
     }
 
     fn emitMessageStruct(cx: *Context, msg: var, kind: []const u8) !void {

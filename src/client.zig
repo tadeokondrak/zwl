@@ -7,7 +7,7 @@ const fd_t = os.fd_t;
 const assert = std.debug.assert;
 
 const wl = @import("wl.zig");
-const WireConnection = @import("common/wire_connection.zig").WireConnection;
+const WireConnection = @import("common/WireConnection.zig");
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
 pub const Object = struct {
