@@ -136,7 +136,7 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
         /// Returns two slices, which in order comprise the readable buffer contents.
         /// The first slice is zero length if the buffer is empty.
         /// The second slice is zero length if the readable elements are contiguous.
-        /// To discard elements once read, use a wrapping add on `head`.
+        /// To discard elements once read, use a wrapping add on `tail`.
         pub fn readSlices(rb: Self) [2][]const T {
             if (rb.tail <= rb.head) {
                 return .{
@@ -152,7 +152,7 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
         }
 
         /// Returns two slices, which in order comprise the unused space in the buffer.
-        /// To add elements once written, use a wrapping add on `tail`.
+        /// To add elements once written, use a wrapping add on `head`.
         pub fn writeSlices(rb: *Self) [2][]T {
             if (rb.head < rb.tail) {
                 return .{

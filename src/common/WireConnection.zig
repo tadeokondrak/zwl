@@ -31,7 +31,7 @@ pub fn read(conn: *WireConnection) !void {
     switch (try conn.socket.readv(vec_slice)) {
         0 => return error.Disconnected,
         else => |n| {
-            conn.in.bytes.tail +%= @intCast(u12, n);
+            conn.in.bytes.head +%= @intCast(u12, n);
         },
     }
 }
@@ -51,7 +51,7 @@ pub fn flush(conn: *WireConnection) !void {
     switch (try conn.socket.writev(vec_slice)) {
         0 => return error.Disconnected,
         else => |n| {
-            conn.out.bytes.head +%= @intCast(u12, n);
+            conn.out.bytes.tail +%= @intCast(u12, n);
         },
     }
 }

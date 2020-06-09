@@ -22,18 +22,18 @@ pub fn getMessage(buf: *Buffer) ?Message {
         return null;
 
     const id_data: [4]u8 align(4) = .{
-        buf.bytes.data[buf.bytes.head +% 0],
-        buf.bytes.data[buf.bytes.head +% 1],
-        buf.bytes.data[buf.bytes.head +% 2],
-        buf.bytes.data[buf.bytes.head +% 3],
+        buf.bytes.data[buf.bytes.tail +% 0],
+        buf.bytes.data[buf.bytes.tail +% 1],
+        buf.bytes.data[buf.bytes.tail +% 2],
+        buf.bytes.data[buf.bytes.tail +% 3],
     };
     const id = std.mem.bytesToValue(u32, &id_data);
 
     const op_len_data: [4]u8 align(4) = .{
-        buf.bytes.data[buf.bytes.head +% 4],
-        buf.bytes.data[buf.bytes.head +% 5],
-        buf.bytes.data[buf.bytes.head +% 6],
-        buf.bytes.data[buf.bytes.head +% 7],
+        buf.bytes.data[buf.bytes.tail +% 4],
+        buf.bytes.data[buf.bytes.tail +% 5],
+        buf.bytes.data[buf.bytes.tail +% 6],
+        buf.bytes.data[buf.bytes.tail +% 7],
     };
     const op_len = std.mem.bytesToValue(u32, &op_len_data);
 
@@ -46,7 +46,7 @@ pub fn getMessage(buf: *Buffer) ?Message {
     buf.bytes.ensureContiguous(len);
 
     const data = buf.bytes.readSlices()[0][8..len];
-    buf.bytes.head +%= len;
+    buf.bytes.tail +%= len;
 
     return Message{
         .id = id,
