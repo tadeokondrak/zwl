@@ -28,6 +28,18 @@ pub fn main() !void {
     _ = try std.zig.render(allocator, std.io.getStdOut().outStream(), tree);
 }
 
+const MessageKind = enum {
+    request,
+    event,
+
+    pub fn format(self: MessageKind, f: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
+        return switch (self) {
+            .request => std.fmt.format(out_stream, "{}", .{"Request"}),
+            .event => std.fmt.format(out_stream, "{}", .{"Event"}),
+        };
+    }
+};
+
 const Context = struct {
     prefix: []const u8,
     out: std.ArrayList(u8),
@@ -37,7 +49,7 @@ const Context = struct {
         return cx.out.outStream().print(fmt, args);
     }
 
-    fn trim(cx: *Context, input: []const u8) []const u8 {
+    fn trimPrefix(cx: *Context, input: []const u8) []const u8 {
         var name = input;
         if (mem.startsWith(u8, input, cx.prefix))
             name = input[cx.prefix.len..];
@@ -91,30 +103,12 @@ const Context = struct {
 
     fn argType(cx: *Context, arg: wayland.Arg) ![]const u8 {
         return switch (arg.kind) {
-            .new_id => blk: {
-                var name = if (arg.interface) |i|
-                    cx.pascalCase(cx.trim(i))
-                else
-                    "wayland.client.Object";
-                if (arg.allow_null)
-                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
-                return name;
-            },
             .int => "i32",
             .uint => "u32",
             .fixed => "f64",
-            .string => if (arg.allow_null) "?[]const u8" else "[]const u8",
-            .object => {
-                var name = if (arg.interface) |i|
-                    cx.pascalCase(cx.trim(i))
-                else
-                    "wayland.client.Object";
-                if (arg.allow_null)
-                    name = try std.fmt.allocPrint(cx.allocator, "?{}", .{name});
-                return name;
-            },
-            .array => "[]const u8",
+            .string, .array => if (arg.allow_null) "?[]const u8" else "[]const u8",
             .fd => "std.os.fd_t",
+            else => unreachable, // special
         };
     }
 
@@ -128,7 +122,7 @@ const Context = struct {
     }
 
     fn emitInterface(cx: *Context, iface: wayland.Interface) !void {
-        const trimmed = cx.trim(iface.name);
+        const trimmed = cx.trimPrefix(iface.name);
         const var_name = try cx.snakeCase(trimmed);
         const type_name = try cx.pascalCase(trimmed);
         try cx.print(
@@ -141,20 +135,20 @@ const Context = struct {
             iface.name,
             iface.version,
         });
-        try cx.emitMessages(iface.requests, "Request");
-        try cx.emitMessages(iface.events, "Event");
+        try cx.emitMessages(iface.requests, .request);
+        try cx.emitMessages(iface.events, .event);
         try cx.emitEnums(iface.enums);
         try cx.print(
             \\}};
         , .{});
     }
 
-    fn emitMessages(cx: *Context, msgs: var, kind: []const u8) !void {
+    fn emitMessages(cx: *Context, msgs: var, kind: MessageKind) !void {
         try cx.emitMessageEnum(msgs, kind);
         try cx.emitMessageUnion(msgs, kind);
     }
 
-    fn emitMessageEnum(cx: *Context, msgs: var, kind: []const u8) !void {
+    fn emitMessageEnum(cx: *Context, msgs: var, kind: MessageKind) !void {
         try cx.print(
             \\pub const {}Id = enum(u16) {{
         , .{kind});
@@ -171,7 +165,7 @@ const Context = struct {
         , .{});
     }
 
-    fn emitMessageUnion(cx: *Context, msgs: var, kind: []const u8) !void {
+    fn emitMessageUnion(cx: *Context, msgs: var, kind: MessageKind) !void {
         try cx.print(
             \\pub const {0} = union({0}Id) {{
         , .{kind});
@@ -190,17 +184,45 @@ const Context = struct {
         , .{});
     }
 
-    fn emitMessageStruct(cx: *Context, msg: var, kind: []const u8) !void {
+    fn emitMessageStruct(cx: *Context, msg: var, kind: MessageKind) !void {
         try cx.print(
             \\pub const {} = struct {{
         , .{try cx.pascalCase(msg.name)});
         for (msg.args) |arg| {
-            try cx.print(
-                \\{}: {},
-            , .{
-                try cx.snakeCase(arg.name),
-                try cx.argType(arg),
-            });
+            switch (arg.kind) {
+                .int, .uint, .fixed, .string, .array, .fd => {
+                    try cx.print(
+                        \\{}: {},
+                    , .{
+                        try cx.snakeCase(arg.name),
+                        try cx.argType(arg),
+                    });
+                },
+                .new_id => {
+                    if (arg.interface) |iface_name| {
+                        try cx.print("{}: {},", .{
+                            try cx.snakeCase(arg.name),
+                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                        });
+                    } else {
+                        try cx.print("interface: []const u8, version: u32,", .{});
+                    }
+                },
+                .object => blk: {
+                    if (arg.interface) |iface_name| {
+                        try cx.print("{}: {}{},", .{
+                            try cx.snakeCase(arg.name),
+                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
+                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                        });
+                    } else {
+                        try cx.print("{}: {}wayland.client.Object,", .{
+                            try cx.snakeCase(arg.name),
+                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
+                        });
+                    }
+                },
+            }
         }
         try cx.emitMarshal(msg, kind);
         try cx.emitUnmarshal(msg, kind);
@@ -307,7 +329,7 @@ const Context = struct {
         });
     }
 
-    fn emitMarshal(cx: *Context, msg: var, kind: []const u8) !void {
+    fn emitMarshal(cx: *Context, msg: var, kind: MessageKind) !void {
         try cx.print(
             \\pub fn marshal({}: {}, _id: u32, _buf: *wayland.Buffer)
             \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
@@ -320,11 +342,10 @@ const Context = struct {
         var extra = std.ArrayList(u8).init(cx.allocator);
         for (msg.args) |arg| switch (arg.kind) {
             .new_id => {
-                if (arg.interface == null and std.mem.eql(u8, kind, "Request")) {
+                if (arg.interface == null) {
                     size_bytes += 12;
-                    try extra.outStream().print("+ {}.{}.len", .{
+                    try extra.outStream().print("+ {}.interface.len", .{
                         try cx.snakeCase(msg.name),
-                        try cx.snakeCase(arg.name),
                     });
                 } else {
                     size_bytes += 4;
@@ -333,19 +354,19 @@ const Context = struct {
             .int, .uint, .fixed, .object => {
                 size_bytes += 4;
             },
-            .string => {
+            .string, .array => {
                 size_bytes += 4;
-                try extra.outStream().print("+ {}.{}.len", .{
-                    try cx.snakeCase(msg.name),
-                    try cx.snakeCase(arg.name),
-                });
-            },
-            .array => {
-                size_bytes += 4;
-                try extra.outStream().print("+ {}.{}.len", .{
-                    try cx.snakeCase(msg.name),
-                    try cx.snakeCase(arg.name),
-                });
+                if (arg.allow_null) {
+                    try extra.outStream().print("+ (if ({}.{}) |_arg| arg.len else 0)", .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
+                } else {
+                    try extra.outStream().print("+ {}.{}.len", .{
+                        try cx.snakeCase(msg.name),
+                        try cx.snakeCase(arg.name),
+                    });
+                }
             },
             .fd => {
                 size_fds += 1;
@@ -356,10 +377,8 @@ const Context = struct {
             \\    return error.BytesBufferFull;
             \\if (_buf.fds.writable() < ({2}))
             \\    return error.FdsBufferFull;
-            \\_buf.putUint(_id)
-            \\    catch unreachable;
-            \\_buf.putUint((({0}{1}) << 16) | @enumToInt({3}Id.{4}))
-            \\    catch unreachable;
+            \\_buf.putUInt(_id) catch unreachable;
+            \\_buf.putUInt(@intCast(u32, @as(usize, ({0}{1}) << 16)) | @enumToInt({3}Id.{4})) catch unreachable;
         , .{
             size_bytes,
             extra.items,
@@ -369,20 +388,30 @@ const Context = struct {
         });
         for (msg.args) |arg| {
             switch (arg.kind) {
-                .new_id, .object => if (arg.allow_null) {
-                    try cx.print(
-                        \\_buf.putUint({}.{}.object.id) catch unreachable;
-                    , .{
-                        try cx.snakeCase(msg.name),
-                        try cx.snakeCase(arg.name),
-                    });
-                } else {
-                    try cx.print(
-                        \\_buf.putUint({}.{}.object.id) catch unreachable;
-                    , .{
-                        try cx.snakeCase(msg.name),
-                        try cx.snakeCase(arg.name),
-                    });
+                .new_id, .object => {
+                    if (arg.kind == .new_id and arg.interface == null) {
+                        try cx.print(
+                            \\_buf.putString({}.interface) catch unreachable;
+                            \\_buf.putUInt({}.version) catch unreachable;
+                        , .{
+                            try cx.snakeCase(msg.name),
+                            try cx.snakeCase(msg.name),
+                        });
+                    } else if (arg.allow_null) {
+                        try cx.print(
+                            \\_buf.putUInt(if ({}.{}) |_obj| _obj.object.id else 0) catch unreachable;
+                        , .{
+                            try cx.snakeCase(msg.name),
+                            try cx.snakeCase(arg.name),
+                        });
+                    } else {
+                        try cx.print(
+                            \\_buf.putUInt({}.{}.object.id) catch unreachable;
+                        , .{
+                            try cx.snakeCase(msg.name),
+                            try cx.snakeCase(arg.name),
+                        });
+                    }
                 },
                 .int => {
                     try cx.print(
@@ -394,7 +423,7 @@ const Context = struct {
                 },
                 .uint => {
                     try cx.print(
-                        \\_buf.putUint({}.{}) catch unreachable;
+                        \\_buf.putUInt({}.{}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -439,7 +468,7 @@ const Context = struct {
         , .{});
     }
 
-    fn emitUnmarshal(cx: *Context, message: var, kind: []const u8) !void {
+    fn emitUnmarshal(cx: *Context, message: var, kind: MessageKind) !void {
         try cx.print(
             \\pub fn unmarshal(_msg: []const u8, _fds: wayland.Buffer) {} {{
         , .{

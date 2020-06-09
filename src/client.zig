@@ -102,9 +102,9 @@ test "Connection" {
 test "Connection: raw request globals" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
-    try conn.wire_conn.out.putUint(1);
-    try conn.wire_conn.out.putUint((12 << 16) | 1);
-    try conn.wire_conn.out.putUint(2);
+    try conn.wire_conn.out.putUInt(1);
+    try conn.wire_conn.out.putUInt((12 << 16) | 1);
+    try conn.wire_conn.out.putUInt(2);
     try conn.flush();
     try conn.read();
 }

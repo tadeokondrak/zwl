@@ -59,7 +59,7 @@ pub fn putInt(buf: *Buffer, int: i32) Error!void {
     try buf.bytes.extendBack(std.mem.asBytes(&int));
 }
 
-pub fn putUint(buf: *Buffer, uint: u32) Error!void {
+pub fn putUInt(buf: *Buffer, uint: u32) Error!void {
     try buf.putInt(@bitCast(i32, uint));
 }
 

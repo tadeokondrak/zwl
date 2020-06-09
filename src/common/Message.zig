@@ -11,7 +11,7 @@ pub fn getInt(msg: *Message) i32 {
     unreachable;
 }
 
-pub fn getUint(msg: *Message) u32 {
+pub fn getUInt(msg: *Message) u32 {
     unreachable;
 }
 
