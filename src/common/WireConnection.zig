@@ -17,9 +17,9 @@ pub fn init(socket: std.fs.File) WireConnection {
 }
 
 pub fn read(conn: *WireConnection) !void {
-    if (conn.in.bytes.writable() == 0)
+    if (conn.in.bytes.writableLength() == 0)
         return error.BufferFull;
-    const write_slices = conn.in.bytes.writeSlices();
+    const write_slices = conn.in.bytes.writableSlices();
     const vecs = [2]os.iovec{
         .{ .iov_base = write_slices[0].ptr, .iov_len = write_slices[0].len },
         .{ .iov_base = write_slices[1].ptr, .iov_len = write_slices[1].len },
@@ -37,9 +37,9 @@ pub fn read(conn: *WireConnection) !void {
 }
 
 pub fn flush(conn: *WireConnection) !void {
-    if (conn.out.bytes.readable() == 0)
+    if (conn.out.bytes.readableLength() == 0)
         return;
-    const read_slices = conn.out.bytes.readSlices();
+    const read_slices = conn.out.bytes.readableSlices();
     const vecs: [2]os.iovec_const = .{
         .{ .iov_base = read_slices[0].ptr, .iov_len = read_slices[0].len },
         .{ .iov_base = read_slices[1].ptr, .iov_len = read_slices[1].len },

@@ -1,11 +1,10 @@
 const std = @import("std");
 
 /// A fixed size ring buffer designed for use with scatter/gather I/O.
-///
 /// `size` must be a power of two greater than one.
 pub fn RingBuffer(comptime T: type, comptime size: usize) type {
     if (size < 2 or !std.math.isPowerOfTwo(size))
-        @compileError("size must be a power of two greater than one");
+        @compileError("`size` must be a power of two greater than one");
 
     return struct {
         const Self = @This();
@@ -35,18 +34,28 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
         }
 
         /// Returns the number of elements that can be read.
-        pub fn readable(rb: Self) Index {
+        pub fn readableLength(rb: Self) Index {
             return rb.head -% rb.tail;
         }
 
         /// Returns the number of elements that can be written.
-        pub fn writable(rb: Self) Index {
+        pub fn writableLength(rb: Self) Index {
             return rb.tail -% rb.head -% 1;
         }
 
+        /// Returns the last element of the buffer, if any.
+        pub fn pop(rb: *Self) ?T {
+            if (rb.readableLength() == 0)
+                return null;
+
+            const item = rb.data[rb.head -% 1];
+            rb.head -%= 1;
+            return item;
+        }
+
         /// Returns the first element of the buffer, if any.
-        pub fn popFront(rb: *Self) ?T {
-            if (rb.readable() == 0)
+        pub fn popFirst(rb: *Self) ?T {
+            if (rb.readableLength() == 0)
                 return null;
 
             const item = rb.data[rb.tail];
@@ -54,38 +63,29 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
             return item;
         }
 
-        /// Returns the last element of the buffer, if any.
-        pub fn popBack(rb: *Self) ?T {
-            if (rb.readable() == 0)
-                return null;
-
-            rb.head -%= 1;
-            return rb.data[rb.head];
-        }
-
-        /// Prepends an element to the buffer, if there is space.
-        pub fn pushFront(rb: *Self, item: T) Error!void {
-            if (rb.writable() == 0)
-                return error.BufferFull;
-
-            rb.tail -%= 1;
-            rb.data[rb.tail] = item;
-        }
-
         /// Appends an element to the buffer, if there is space.
-        pub fn pushBack(rb: *Self, item: T) Error!void {
-            if (rb.writable() == 0)
+        pub fn prepend(rb: *Self, item: T) Error!void {
+            if (rb.writableLength() == 0)
                 return error.BufferFull;
 
             rb.data[rb.head] = item;
             rb.head +%= 1;
         }
 
+        /// Prepends an element to the buffer, if there is space.
+        pub fn append(rb: *Self, item: T) Error!void {
+            if (rb.writableLength() == 0)
+                return error.BufferFull;
+
+            rb.tail -%= 1;
+            rb.data[rb.tail] = item;
+        }
+
         /// Copies elements to the front of the buffer, if there is space.
-        /// Note that this is not the same as pushing each, so extending
-        /// {4, 5, 6} with {1, 2, 3} would yield {1, 2, 3, 4, 5, 6}.
-        pub fn extendFront(rb: *Self, items: []const T) Error!void {
-            if (items.len > rb.writable())
+        /// Note that this is not the same as individually prepending elements,
+        /// as extending {4, 5, 6} with {1, 2, 3} yields {1, 2, 3, 4, 5, 6}.
+        pub fn prependSlice(rb: *Self, items: []const T) Error!void {
+            if (items.len > rb.writableLength())
                 return error.BufferFull;
 
             const len = @intCast(Index, items.len);
@@ -101,8 +101,8 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
         }
 
         /// Copies elements to the back of the buffer, if there is space.
-        pub fn extendBack(rb: *Self, items: []const T) Error!void {
-            if (items.len > rb.writable())
+        pub fn appendSlice(rb: *Self, items: []const T) Error!void {
+            if (items.len > rb.writableLength())
                 return error.BufferFull;
 
             const len = @intCast(Index, items.len);
@@ -116,12 +116,12 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
             rb.head +%= len;
         }
 
-        /// Ensures that the next `n` readable items are stored contiguously
-        /// in the buffer, which means the first slice returned from readSlices()
-        /// is guaranteed to be at least `n` items long.
-        /// `n` must be less than or equal to readable().
+        /// Ensures that the next `n` readable items are stored contiguously in
+        /// the buffer, meaning the first slice returned from readableSlices() is
+        /// guaranteed to be at least `n` items long.
+        /// `n` must be less than or equal to readableLength().
         pub fn ensureContiguous(rb: *Self, n: usize) void {
-            std.debug.assert(n <= rb.readable());
+            std.debug.assert(n <= rb.readableLength());
             if (size - rb.tail < n) {
                 var buf: [size / 2]T = undefined;
                 const difference = @intCast(Index, n - (size - rb.tail));
@@ -133,11 +133,11 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
             }
         }
 
-        /// Returns two slices, which in order comprise the readable buffer contents.
-        /// The first slice is zero length if the buffer is empty.
-        /// The second slice is zero length if the readable elements are contiguous.
+        /// Returns two slices, which in order constitute the readable buffer contents.
+        /// The first slice is of of length zero if the buffer is empty.
+        /// The second slice is of length zero if all readable elements are contiguous.
         /// To discard elements once read, use a wrapping add on `tail`.
-        pub fn readSlices(rb: Self) [2][]const T {
+        pub fn readableSlices(rb: *const Self) [2][]const T {
             if (rb.tail <= rb.head) {
                 return .{
                     rb.data[rb.tail..rb.head],
@@ -151,9 +151,9 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
             }
         }
 
-        /// Returns two slices, which in order comprise the unused space in the buffer.
+        /// Returns two slices, which in order constitute the unused space in the buffer.
         /// To add elements once written, use a wrapping add on `head`.
-        pub fn writeSlices(rb: *Self) [2][]T {
+        pub fn writableSlices(rb: *Self) [2][]T {
             if (rb.head < rb.tail) {
                 return .{
                     rb.data[rb.head .. rb.tail -% 1],
@@ -182,70 +182,70 @@ test "RingBuffer" {
         const Rb = RingBuffer(u8, 2);
         var rb = Rb.init();
         {
-            expectEqual(@as(Rb.Index, 0), rb.readable());
-            expectEqual(@as(Rb.Index, 1), rb.writable());
-            expectEqual(@as(usize, 0), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+            expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
-        try rb.pushBack(0);
+        try rb.prepend(0);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readable());
-            expectEqual(@as(Rb.Index, 0), rb.writable());
-            expectEqual(@as(usize, 1), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
-            expectEqual(@as(u8, 0), rb.readSlices()[0][0]);
+            expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
         }
-        expectError(error.BufferFull, rb.pushBack(1));
+        expectError(error.BufferFull, rb.prepend(1));
         {
-            expectEqual(@as(Rb.Index, 1), rb.readable());
-            expectEqual(@as(Rb.Index, 0), rb.writable());
-            expectEqual(@as(usize, 1), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
-            expectEqual(@as(u8, 0), rb.readSlices()[0][0]);
+            expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
         }
-        expectEqual(@as(?u8, 0), rb.popFront());
+        expectEqual(@as(?u8, 0), rb.popFirst());
         {
-            expectEqual(@as(Rb.Index, 0), rb.readable());
-            expectEqual(@as(Rb.Index, 1), rb.writable());
-            expectEqual(@as(usize, 0), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+            expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
-        try rb.pushBack(1);
+        try rb.prepend(1);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readable());
-            expectEqual(@as(Rb.Index, 0), rb.writable());
-            expectEqual(@as(usize, 1), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
-            expectEqual(@as(u8, 1), rb.readSlices()[0][0]);
+            expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            expectEqual(@as(u8, 1), rb.readableSlices()[0][0]);
         }
-        expectEqual(@as(?u8, 1), rb.popFront());
+        expectEqual(@as(?u8, 1), rb.popFirst());
         {
-            expectEqual(@as(Rb.Index, 0), rb.readable());
-            expectEqual(@as(Rb.Index, 1), rb.writable());
-            expectEqual(@as(usize, 0), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+            expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
-        try rb.pushFront(2);
+        try rb.append(2);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readable());
-            expectEqual(@as(Rb.Index, 0), rb.writable());
-            expectEqual(@as(usize, 1), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
-            expectEqual(@as(u8, 2), rb.readSlices()[0][0]);
+            expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            expectEqual(@as(u8, 2), rb.readableSlices()[0][0]);
         }
     }
 
@@ -253,71 +253,71 @@ test "RingBuffer" {
         const Rb = RingBuffer(u8, 16);
         var rb = Rb.init();
 
-        try rb.extendBack(&[_]u8{ 7, 8, 9 });
-        try rb.extendFront(&[_]u8{ 4, 5, 6 });
-        try rb.extendFront(&[_]u8{ 1, 2, 3 });
+        try rb.appendSlice(&[_]u8{ 7, 8, 9 });
+        try rb.prependSlice(&[_]u8{ 4, 5, 6 });
+        try rb.prependSlice(&[_]u8{ 1, 2, 3 });
 
         rb.ensureContiguous(9);
 
-        expectEqual(@as(usize, 9), rb.readSlices()[0].len);
-        expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-        expectEqual(@as(?u8, 9), rb.popBack());
-        expectEqual(@as(?u8, 8), rb.popBack());
-        expectEqual(@as(?u8, 7), rb.popBack());
+        expectEqual(@as(usize, 9), rb.readableSlices()[0].len);
+        expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+        expectEqual(@as(?u8, 9), rb.pop());
+        expectEqual(@as(?u8, 8), rb.pop());
+        expectEqual(@as(?u8, 7), rb.pop());
 
-        expectEqual(@as(?u8, 1), rb.popFront());
-        expectEqual(@as(?u8, 2), rb.popFront());
-        expectEqual(@as(?u8, 3), rb.popFront());
+        expectEqual(@as(?u8, 1), rb.popFirst());
+        expectEqual(@as(?u8, 2), rb.popFirst());
+        expectEqual(@as(?u8, 3), rb.popFirst());
 
         rb.ensureContiguous(3);
-        expectEqual(@as(usize, 3), rb.readSlices()[0].len);
-        expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-        expectEqual(@as(usize, 4), rb.readSlices()[0][0]);
-        expectEqual(@as(usize, 5), rb.readSlices()[0][1]);
-        expectEqual(@as(usize, 6), rb.readSlices()[0][2]);
+        expectEqual(@as(usize, 3), rb.readableSlices()[0].len);
+        expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+        expectEqual(@as(usize, 4), rb.readableSlices()[0][0]);
+        expectEqual(@as(usize, 5), rb.readableSlices()[0][1]);
+        expectEqual(@as(usize, 6), rb.readableSlices()[0][2]);
     }
     {
         const Rb = RingBuffer(u8, 4096);
         var rb = Rb.init();
         {
-            expectEqual(@as(Rb.Index, 0), rb.readable());
-            expectEqual(@as(Rb.Index, 4095), rb.writable());
-            expectEqual(@as(usize, 0), rb.readSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-            expectEqual(@as(usize, 4095), rb.writeSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+            expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            expectEqual(@as(Rb.Index, 4095), rb.writableLength());
+            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            expectEqual(@as(usize, 4095), rb.writableSlices()[0].len);
+            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
         var i: u8 = 0;
         while (i < 255) {
-            try rb.pushBack(i);
+            try rb.prepend(i);
             i += 1;
             {
-                expectEqual(@as(Rb.Index, 0) + i, rb.readable());
-                expectEqual(@as(Rb.Index, 4095) - i, rb.writable());
-                expectEqual(@as(usize, 0) + i, rb.readSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.readSlices()[1].len);
-                expectEqual(@as(usize, 4095) - i, rb.writeSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+                expectEqual(@as(Rb.Index, 0) + i, rb.readableLength());
+                expectEqual(@as(Rb.Index, 4095) - i, rb.writableLength());
+                expectEqual(@as(usize, 0) + i, rb.readableSlices()[0].len);
+                expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+                expectEqual(@as(usize, 4095) - i, rb.writableSlices()[0].len);
+                expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
             }
         }
         i = 0;
         while (i < 255) {
-            expectEqual(@as(?u8, i), rb.popFront());
+            expectEqual(@as(?u8, i), rb.popFirst());
             i += 1;
             {
-                expectEqual(@as(Rb.Index, 255) - i, rb.readable());
-                expectEqual(@as(Rb.Index, 3840) + i, rb.writable());
-                expectEqual(@as(usize, 255) - i, rb.readSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.readSlices()[1].len);
+                expectEqual(@as(Rb.Index, 255) - i, rb.readableLength());
+                expectEqual(@as(Rb.Index, 3840) + i, rb.writableLength());
+                expectEqual(@as(usize, 255) - i, rb.readableSlices()[0].len);
+                expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
                 if (i == 1) {
-                    expectEqual(@as(usize, 3841), rb.writeSlices()[0].len);
-                    expectEqual(@as(usize, 0), rb.writeSlices()[1].len);
+                    expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
+                    expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
                 } else {
-                    expectEqual(@as(usize, 3841), rb.writeSlices()[0].len);
-                    expectEqual(@as(usize, i) - 1, rb.writeSlices()[1].len);
+                    expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
+                    expectEqual(@as(usize, i) - 1, rb.writableSlices()[1].len);
                 }
             }
         }
-        expectEqual(@as(?u8, null), rb.popFront());
+        expectEqual(@as(?u8, null), rb.popFirst());
     }
 }

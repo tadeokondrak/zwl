@@ -18,7 +18,7 @@ pub fn init() Buffer {
 }
 
 pub fn getMessage(buf: *Buffer) ?Message {
-    if (buf.bytes.readable() < 8)
+    if (buf.bytes.readableLength() < 8)
         return null;
 
     const id_data: [4]u8 align(4) = .{
@@ -40,12 +40,12 @@ pub fn getMessage(buf: *Buffer) ?Message {
     const len = @intCast(u12, op_len >> 16);
     const op = @intCast(u16, op_len & 0xffff);
 
-    if (buf.bytes.readable() < len)
+    if (buf.bytes.readableLength() < len)
         return null;
 
     buf.bytes.ensureContiguous(len);
 
-    const data = buf.bytes.readSlices()[0][8..len];
+    const data = buf.bytes.readableSlices()[0][8..len];
     buf.bytes.tail +%= len;
 
     return Message{
@@ -56,7 +56,7 @@ pub fn getMessage(buf: *Buffer) ?Message {
 }
 
 pub fn putInt(buf: *Buffer, int: i32) Error!void {
-    try buf.bytes.extendBack(std.mem.asBytes(&int));
+    try buf.bytes.appendSlice(std.mem.asBytes(&int));
 }
 
 pub fn putUInt(buf: *Buffer, uint: u32) Error!void {
@@ -76,7 +76,7 @@ pub fn putArray(buf: *Buffer, array: []const u8) Error!void {
 }
 
 pub fn putFd(buf: *Buffer, fd: fd_t) Error!void {
-    try buf.fds.pushBack(fd);
+    try buf.fds.append(fd);
 }
 
 test "Buffer" {

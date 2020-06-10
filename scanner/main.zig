@@ -32,13 +32,29 @@ const MessageKind = enum {
     request,
     event,
 
-    pub fn format(self: MessageKind, f: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
-        return switch (self) {
-            .request => std.fmt.format(out_stream, "{}", .{"Request"}),
-            .event => std.fmt.format(out_stream, "{}", .{"Event"}),
+    pub fn nameLower(kind: MessageKind) []const u8 {
+        return switch (kind) {
+            .request => "request",
+            .event => "event",
+        };
+    }
+
+    pub fn nameUpper(kind: MessageKind) []const u8 {
+        return switch (kind) {
+            .request => "Request",
+            .event => "Event",
         };
     }
 };
+
+fn isValidZigIdentifier(name: []const u8) bool {
+    for (name) |c, i| switch (c) {
+        '_', 'a'...'z', 'A'...'Z' => {},
+        '0'...'9' => if (i == 0) return false,
+        else => return false,
+    };
+    return std.zig.Token.getKeyword(name) == null;
+}
 
 const Context = struct {
     prefix: []const u8,
@@ -70,15 +86,6 @@ const Context = struct {
             }
         }
         return new.toOwnedSlice();
-    }
-
-    fn isValidZigIdentifier(name: []const u8) bool {
-        for (name) |c, i| switch (c) {
-            '_', 'a'...'z', 'A'...'Z' => {},
-            '0'...'9' => if (i == 0) return false,
-            else => return false,
-        };
-        return std.zig.Token.getKeyword(name) == null;
     }
 
     fn identifier(cx: *Context, name: []const u8) ![]const u8 {
@@ -135,23 +142,23 @@ const Context = struct {
             iface.name,
             iface.version,
         });
-        try cx.emitMessages(iface.requests, .request);
-        try cx.emitMessages(iface.events, .event);
+        try cx.emitMessages(iface, iface.requests, .request);
+        try cx.emitMessages(iface, iface.events, .event);
         try cx.emitEnums(iface.enums);
         try cx.print(
             \\}};
         , .{});
     }
 
-    fn emitMessages(cx: *Context, msgs: var, kind: MessageKind) !void {
+    fn emitMessages(cx: *Context, iface: wayland.Interface, msgs: var, kind: MessageKind) !void {
         try cx.emitMessageEnum(msgs, kind);
-        try cx.emitMessageUnion(msgs, kind);
+        try cx.emitMessageUnion(iface, msgs, kind);
     }
 
     fn emitMessageEnum(cx: *Context, msgs: var, kind: MessageKind) !void {
         try cx.print(
-            \\pub const {}Id = enum(u16) {{
-        , .{kind});
+            \\pub const {}Opcode = enum(u16) {{
+        , .{kind.nameUpper()});
         for (msgs) |msg, i| {
             try cx.print(
                 \\{} = {},
@@ -161,14 +168,15 @@ const Context = struct {
             });
         }
         try cx.print(
+            \\    _,
             \\}};
         , .{});
     }
 
-    fn emitMessageUnion(cx: *Context, msgs: var, kind: MessageKind) !void {
+    fn emitMessageUnion(cx: *Context, iface: wayland.Interface, msgs: var, kind: MessageKind) !void {
         try cx.print(
-            \\pub const {0} = union({0}Id) {{
-        , .{kind});
+            \\pub const {0} = union({0}Opcode) {{
+        , .{kind.nameUpper()});
         for (msgs) |msg| {
             try cx.print(
                 \\{}: {},
@@ -180,6 +188,42 @@ const Context = struct {
         for (msgs) |msg|
             try cx.emitMessageStruct(msg, kind);
         try cx.print(
+            \\pub fn marshal(_{0}: {1}, _id: u32, _buf: *wayland.Buffer)
+            \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
+            \\    return switch (_{0}) {{
+        , .{
+            kind.nameLower(),
+            kind.nameUpper(),
+        });
+        for (msgs) |msg| {
+            try cx.print(
+                \\.{0} => |{0}| {0}.marshal(_id, _buf),
+            , .{
+                try cx.snakeCase(msg.name),
+            });
+        }
+        try cx.print(
+            \\        _ => unreachable,
+            \\    }};
+            \\}}
+        , .{});
+        try cx.print(
+            \\pub fn unmarshal(_opcode: {0}Opcode, _msg: []const u8, _fds: wayland.Buffer) {0} {{
+            \\    return switch (_opcode) {{
+        , .{
+            kind.nameUpper(),
+        });
+        for (msgs) |msg| {
+            try cx.print(
+                \\.{} => {}.unmarshal(_msg, _fds),
+            , .{
+                try cx.snakeCase(msg.name),
+                try cx.pascalCase(msg.name),
+            });
+        }
+        try cx.print(
+            \\    }};
+            \\}}
             \\}};
         , .{});
     }
@@ -373,17 +417,17 @@ const Context = struct {
             },
         };
         try cx.print(
-            \\if (_buf.bytes.writable() < ({0}{1}))
+            \\if (_buf.bytes.writableLength() < ({0}{1}))
             \\    return error.BytesBufferFull;
-            \\if (_buf.fds.writable() < ({2}))
+            \\if (_buf.fds.writableLength() < ({2}))
             \\    return error.FdsBufferFull;
             \\_buf.putUInt(_id) catch unreachable;
-            \\_buf.putUInt(@intCast(u32, @as(usize, ({0}{1}) << 16)) | @enumToInt({3}Id.{4})) catch unreachable;
+            \\_buf.putUInt(@intCast(u32, @as(usize, ({0}{1}) << 16)) | @enumToInt({3}Opcode.{4})) catch unreachable;
         , .{
             size_bytes,
             extra.items,
             size_fds,
-            kind,
+            kind.nameUpper(),
             try cx.snakeCase(msg.name),
         });
         for (msg.args) |arg| {
