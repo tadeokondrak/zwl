@@ -21,24 +21,22 @@ pub fn getMessage(buf: *Buffer) ?Message {
     if (buf.bytes.readableLength() < 8)
         return null;
 
-    const id_data: [4]u8 align(4) = .{
+    const id = @bitCast(u32, [4]u8{
         buf.bytes.data[buf.bytes.tail +% 0],
         buf.bytes.data[buf.bytes.tail +% 1],
         buf.bytes.data[buf.bytes.tail +% 2],
         buf.bytes.data[buf.bytes.tail +% 3],
-    };
-    const id = std.mem.bytesToValue(u32, &id_data);
+    });
 
-    const op_len_data: [4]u8 align(4) = .{
+    const op_len = @bitCast(u32, [4]u8{
         buf.bytes.data[buf.bytes.tail +% 4],
         buf.bytes.data[buf.bytes.tail +% 5],
         buf.bytes.data[buf.bytes.tail +% 6],
         buf.bytes.data[buf.bytes.tail +% 7],
-    };
-    const op_len = std.mem.bytesToValue(u32, &op_len_data);
+    });
 
-    const len = @intCast(u12, op_len >> 16);
     const op = @intCast(u16, op_len & 0xffff);
+    const len = @intCast(u12, op_len >> 16);
 
     if (buf.bytes.readableLength() < len)
         return null;
@@ -64,15 +62,33 @@ pub fn putUInt(buf: *Buffer, uint: u32) Error!void {
 }
 
 pub fn putFixed(buf: *Buffer, fixed: f64) Error!void {
-    unreachable;
+    try buf.putInt(@floatToInt(i32, fixed * 256));
 }
 
-pub fn putString(buf: *Buffer, string: []const u8) Error!void {
-    unreachable;
+pub fn putString(buf: *Buffer, string: ?[]const u8) Error!void {
+    if (string) |_string| {
+        const len = @intCast(u32, _string.len) + 1;
+        const padded = (len + 3) / 4 * 4;
+        const zeroes = [4]u8{ 0, 0, 0, 0 };
+        try buf.putUInt(len);
+        try buf.bytes.appendSlice(_string);
+        try buf.bytes.appendSlice(zeroes[0 .. padded - len + 1]);
+    } else {
+        try buf.putUInt(0);
+    }
 }
 
-pub fn putArray(buf: *Buffer, array: []const u8) Error!void {
-    unreachable;
+pub fn putArray(buf: *Buffer, array: ?[]const u8) Error!void {
+    if (array) |_array| {
+        const len = @intCast(u32, _array.len);
+        const padded = (len + 3) / 4 * 4;
+        const zeroes = [4]u8{ 0, 0, 0, 0 };
+        try buf.putUInt(len);
+        try buf.bytes.appendSlice(_array);
+        try buf.bytes.appendSlice(zeroes[0 .. padded - len]);
+    } else {
+        try buf.putUInt(0);
+    }
 }
 
 pub fn putFd(buf: *Buffer, fd: fd_t) Error!void {

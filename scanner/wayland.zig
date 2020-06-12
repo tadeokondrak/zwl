@@ -35,8 +35,8 @@ pub const Interface = struct {
     name: []u8,
     version: u32,
     description: ?Description,
-    requests: []Request,
-    events: []Event,
+    requests: []Message,
+    events: []Message,
     enums: []Enum,
     allocator: *mem.Allocator,
 
@@ -56,38 +56,21 @@ pub const Interface = struct {
     }
 };
 
-pub const Request = struct {
+pub const Message = struct {
     name: []u8,
-    destructor: bool,
+    is_destructor: bool,
     since: u32,
     description: ?Description,
     args: []Arg,
     allocator: *mem.Allocator,
 
-    pub fn deinit(req: *Request) void {
-        req.allocator.free(req.name);
-        if (req.description) |*description|
+    pub fn deinit(msg: *Message) void {
+        msg.allocator.free(msg.name);
+        if (msg.description) |*description|
             description.deinit();
-        for (req.args) |*arg|
+        for (msg.args) |*arg|
             arg.deinit();
-        req.allocator.free(req.args);
-    }
-};
-
-pub const Event = struct {
-    name: []u8,
-    since: u32,
-    description: ?Description,
-    args: []Arg,
-    allocator: *mem.Allocator,
-
-    pub fn deinit(evt: *Event) void {
-        evt.allocator.free(evt.name);
-        if (evt.description) |*description|
-            description.deinit();
-        for (evt.args) |*arg|
-            arg.deinit();
-        evt.allocator.free(evt.args);
+        msg.allocator.free(msg.args);
     }
 };
 
@@ -252,9 +235,9 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
     var version: u32 = 1;
     var description: ?Description = null;
     errdefer if (description) |*d| d.deinit();
-    var requests = std.ArrayList(Request).init(allocator);
+    var requests = std.ArrayList(Message).init(allocator);
     errdefer requests.deinit();
-    var events = std.ArrayList(Event).init(allocator);
+    var events = std.ArrayList(Message).init(allocator);
     errdefer events.deinit();
     var enums = std.ArrayList(Enum).init(allocator);
     errdefer enums.deinit();
@@ -265,11 +248,11 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
                     return error.DuplicateDescription;
                 description = try parseDescription(allocator, parser);
             } else if (mem.eql(u8, tag, "request")) {
-                var req = try parseRequest(allocator, parser);
+                var req = try parseMessage(allocator, parser);
                 errdefer req.deinit();
                 try requests.append(req);
             } else if (mem.eql(u8, tag, "event")) {
-                var evt = try parseEvent(allocator, parser);
+                var evt = try parseMessage(allocator, parser);
                 errdefer evt.deinit();
                 try events.append(evt);
             } else if (mem.eql(u8, tag, "enum")) {
@@ -307,10 +290,10 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
     return error.UnexpectedEof;
 }
 
-fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
+fn parseMessage(allocator: *mem.Allocator, parser: *xml.Parser) !Message {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
-    var destructor: bool = false;
+    var is_destructor: bool = false;
     var since: u32 = 1;
     var description: ?Description = null;
     errdefer if (description) |*d| d.deinit();
@@ -335,9 +318,9 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
                 name = try attr.dupeValue(allocator);
             } else if (mem.eql(u8, attr.name, "type")) {
                 if (attr.valueEql("destructor")) {
-                    destructor = true;
+                    is_destructor = true;
                 } else {
-                    return error.InvalidRequestType;
+                    return error.InvalidMessageType;
                 }
             } else if (mem.eql(u8, attr.name, "since")) {
                 const value = try attr.dupeValue(allocator);
@@ -346,61 +329,12 @@ fn parseRequest(allocator: *mem.Allocator, parser: *xml.Parser) !Request {
             }
         },
         .close_tag => |tag| {
-            if (mem.eql(u8, tag, "request")) {
-                return Request{
-                    .name = name orelse return error.RequestNameMissing,
+            if (mem.eql(u8, tag, "request") or mem.eql(u8, tag, "event")) {
+                return Message{
+                    .name = name orelse return error.MessageNameMissing,
                     .description = description,
-                    .destructor = destructor,
+                    .is_destructor = is_destructor,
                     .since = since,
-                    .args = args.toOwnedSlice(),
-                    .allocator = allocator,
-                };
-            }
-        },
-        else => {},
-    };
-    return error.UnexpectedEof;
-}
-
-fn parseEvent(allocator: *mem.Allocator, parser: *xml.Parser) !Event {
-    var name: ?[]u8 = null;
-    errdefer if (name) |n| allocator.free(n);
-    var since: ?u32 = null;
-    var description: ?Description = null;
-    errdefer if (description) |*d| d.deinit();
-    var args = std.ArrayList(Arg).init(allocator);
-    errdefer args.deinit();
-    while (parser.next()) |ev| switch (ev) {
-        .open_tag => |tag| {
-            if (mem.eql(u8, tag, "description")) {
-                if (description != null)
-                    return error.DuplicateDescription;
-                description = try parseDescription(allocator, parser);
-            } else if (mem.eql(u8, tag, "arg")) {
-                var arg = try parseArg(allocator, parser);
-                errdefer arg.deinit();
-                try args.append(arg);
-            }
-        },
-        .attribute => |attr| {
-            if (mem.eql(u8, attr.name, "name")) {
-                if (name != null)
-                    return error.DuplicateName;
-                name = try attr.dupeValue(allocator);
-            } else if (mem.eql(u8, attr.name, "since")) {
-                if (since != null)
-                    return error.DuplicateSince;
-                const value = try attr.dupeValue(allocator);
-                defer allocator.free(value);
-                since = try std.fmt.parseInt(u32, value, 10);
-            }
-        },
-        .close_tag => |tag| {
-            if (mem.eql(u8, tag, "event")) {
-                return Event{
-                    .name = name orelse return error.EventNameMissing,
-                    .since = since orelse 1,
-                    .description = description,
                     .args = args.toOwnedSlice(),
                     .allocator = allocator,
                 };

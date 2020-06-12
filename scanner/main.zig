@@ -150,12 +150,12 @@ const Context = struct {
         , .{});
     }
 
-    fn emitMessages(cx: *Context, iface: wayland.Interface, msgs: var, kind: MessageKind) !void {
+    fn emitMessages(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
         try cx.emitMessageEnum(msgs, kind);
         try cx.emitMessageUnion(iface, msgs, kind);
     }
 
-    fn emitMessageEnum(cx: *Context, msgs: var, kind: MessageKind) !void {
+    fn emitMessageEnum(cx: *Context, msgs: []wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub const {}Opcode = enum(u16) {{
         , .{kind.nameUpper()});
@@ -173,7 +173,7 @@ const Context = struct {
         , .{});
     }
 
-    fn emitMessageUnion(cx: *Context, iface: wayland.Interface, msgs: var, kind: MessageKind) !void {
+    fn emitMessageUnion(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub const {0} = union({0}Opcode) {{
         , .{kind.nameUpper()});
@@ -208,8 +208,8 @@ const Context = struct {
             \\}}
         , .{});
         try cx.print(
-            \\pub fn unmarshal(_opcode: {0}Opcode, _msg: []const u8, _fds: wayland.Buffer) {0} {{
-            \\    return switch (_opcode) {{
+            \\pub fn unmarshal(_msg: *wayland.Message, _fds: *wayland.Buffer) {0} {{
+            \\    return switch (@intToEnum({0}, _msg.op)) {{
         , .{
             kind.nameUpper(),
         });
@@ -222,13 +222,14 @@ const Context = struct {
             });
         }
         try cx.print(
+            \\        _ => unreachable,
             \\    }};
             \\}}
             \\}};
         , .{});
     }
 
-    fn emitMessageStruct(cx: *Context, msg: var, kind: MessageKind) !void {
+    fn emitMessageStruct(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub const {} = struct {{
         , .{try cx.pascalCase(msg.name)});
@@ -249,7 +250,9 @@ const Context = struct {
                             cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
-                        try cx.print("interface: []const u8, version: u32,", .{});
+                        try cx.print("interface: []const u8, version: u32, {}: wayland.client.Object,", .{
+                            try cx.snakeCase(arg.name),
+                        });
                     }
                 },
                 .object => blk: {
@@ -357,12 +360,12 @@ const Context = struct {
             });
         }
         try cx.print(
-            \\pub fn toInt({}: {}) u32 {{
-            \\    return @enumToInt({});
-            \\}}
-            \\pub fn fromInt(_int: u32) {} {{
-            \\    return @intToEnum({}, _int);
-            \\}}
+            \\    pub fn toInt({}: {}) u32 {{
+            \\        return @enumToInt({});
+            \\    }}
+            \\    pub fn fromInt(_int: u32) {} {{
+            \\        return @intToEnum({}, _int);
+            \\    }}
             \\}};
         , .{
             try cx.snakeCase(@"enum".name),
@@ -373,7 +376,7 @@ const Context = struct {
         });
     }
 
-    fn emitMarshal(cx: *Context, msg: var, kind: MessageKind) !void {
+    fn emitMarshal(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub fn marshal({}: {}, _id: u32, _buf: *wayland.Buffer)
             \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
@@ -388,7 +391,7 @@ const Context = struct {
             .new_id => {
                 if (arg.interface == null) {
                     size_bytes += 12;
-                    try extra.outStream().print("+ {}.interface.len", .{
+                    try extra.outStream().print("+ (({}.interface.len + 3) / 4 * 4)", .{
                         try cx.snakeCase(msg.name),
                     });
                 } else {
@@ -401,12 +404,12 @@ const Context = struct {
             .string, .array => {
                 size_bytes += 4;
                 if (arg.allow_null) {
-                    try extra.outStream().print("+ (if ({}.{}) |_arg| arg.len else 0)", .{
+                    try extra.outStream().print("+ (if ({}.{}) |_arg| ((arg.len + 3) / 4 * 4) else 0)", .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
                     });
                 } else {
-                    try extra.outStream().print("+ {}.{}.len", .{
+                    try extra.outStream().print("+ (({}.{}.len + 3) / 4 * 4)", .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
                     });
@@ -435,11 +438,12 @@ const Context = struct {
                 .new_id, .object => {
                     if (arg.kind == .new_id and arg.interface == null) {
                         try cx.print(
-                            \\_buf.putString({}.interface) catch unreachable;
-                            \\_buf.putUInt({}.version) catch unreachable;
+                            \\_buf.putString({0}.interface) catch unreachable;
+                            \\_buf.putUInt({0}.version) catch unreachable;
+                            \\_buf.putUInt({0}.{1}.id) catch unreachable;
                         , .{
                             try cx.snakeCase(msg.name),
-                            try cx.snakeCase(msg.name),
+                            try cx.snakeCase(arg.name),
                         });
                     } else if (arg.allow_null) {
                         try cx.print(
@@ -512,12 +516,13 @@ const Context = struct {
         , .{});
     }
 
-    fn emitUnmarshal(cx: *Context, message: var, kind: MessageKind) !void {
+    fn emitUnmarshal(cx: *Context, message: wayland.Message, kind: MessageKind) !void {
         try cx.print(
-            \\pub fn unmarshal(_msg: []const u8, _fds: wayland.Buffer) {} {{
+            \\pub fn unmarshal(_msg: *wayland.Message, _fds: *wayland.Buffer) {} {{
         , .{
             try cx.pascalCase(message.name),
         });
+        // TODO: assert opcode is correct
         try cx.print(
             \\}}
         , .{});
