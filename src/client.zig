@@ -26,12 +26,16 @@ pub const Connection = struct {
     object_map: ObjectMap(ObjectData, .client),
     allocator: mem.Allocator,
 
+    // TODO: explicit error set
     pub fn init(allocator: mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
             if (os.getenv("WAYLAND_SOCKET")) |wayland_socket| {
-                // TODO: set CLOEXEC and unset environment variable
+                // TODO: unset environment variable
+                const fd = try std.fmt.parseInt(c_int, wayland_socket, 10);
+                const flags = try std.os.fcntl(fd, std.os.F.GETFD, 0);
+                _ = try std.os.fcntl(fd, std.os.F.SETFD, flags | std.os.FD_CLOEXEC);
                 break :blk net.Stream{
-                    .handle = try std.fmt.parseInt(c_int, wayland_socket, 10),
+                    .handle = fd,
                 };
             }
 
