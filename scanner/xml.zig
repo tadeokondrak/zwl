@@ -61,14 +61,14 @@ pub const Parser = struct {
                 },
                 ':', 'A'...'Z', '_', 'a'...'z' => {
                     const angle = std.mem.indexOfScalar(u8, p.document, '>') orelse return null;
-                    if (std.mem.indexOfScalar(u8, p.document[0..angle], ' ')) |space| blk: {
+                    if (std.mem.indexOfScalar(u8, p.document[0..angle], ' ')) |space| {
                         const ev = Event{ .open_tag = p.document[1..space] };
                         p.current_tag = ev.open_tag;
                         p.document = p.document[space..];
                         p.mode = .attrs;
                         return ev;
                     }
-                    if (std.mem.indexOfScalar(u8, p.document[0..angle], '/')) |slash| blk: {
+                    if (std.mem.indexOfScalar(u8, p.document[0..angle], '/')) |slash| {
                         const ev = Event{ .open_tag = p.document[1..slash] };
                         p.current_tag = ev.open_tag;
                         p.document = p.document[slash..];
@@ -247,7 +247,7 @@ pub const Attribute = struct {
     raw_value: []const u8,
     char_buffer: [4]u8 = undefined,
 
-    pub fn dupeValue(attr: Attribute, allocator: *std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn dupeValue(attr: Attribute, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         var list = std.ArrayList(u8).init(allocator);
         errdefer list.deinit();
         var attr_copy = attr;

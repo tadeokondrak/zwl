@@ -96,5 +96,5 @@ pub fn putFd(buf: *Buffer, fd: fd_t) Error!void {
 }
 
 test "Buffer" {
-    std.meta.refAllDecls(Buffer);
+    std.testing.refAllDecls(Buffer);
 }

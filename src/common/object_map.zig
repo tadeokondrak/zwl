@@ -49,11 +49,11 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
             }
         };
 
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         client: FreeList,
         server: FreeList,
 
-        pub fn init(allocator: *mem.Allocator) Self {
+        pub fn init(allocator: mem.Allocator) Self {
             return .{
                 .allocator = allocator,
                 .client = .{
@@ -104,6 +104,6 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
 }
 
 test "ObjectMap" {
-    std.meta.refAllDecls(ObjectMap(u1, .server));
-    std.meta.refAllDecls(ObjectMap(u1, .client));
+    std.testing.refAllDecls(ObjectMap(u1, .server));
+    std.testing.refAllDecls(ObjectMap(u1, .client));
 }

@@ -8,7 +8,7 @@ pub const Protocol = struct {
     copyright: ?Copyright,
     description: ?Description,
     interfaces: []Interface,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(proto: *Protocol) void {
         proto.allocator.free(proto.name);
@@ -24,7 +24,7 @@ pub const Protocol = struct {
 
 pub const Copyright = struct {
     content: []u8,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(copy: *Copyright) void {
         copy.allocator.free(copy.content);
@@ -38,7 +38,7 @@ pub const Interface = struct {
     requests: []Message,
     events: []Message,
     enums: []Enum,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(iface: *Interface) void {
         iface.allocator.free(iface.name);
@@ -62,7 +62,7 @@ pub const Message = struct {
     since: u32,
     description: ?Description,
     args: []Arg,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(msg: *Message) void {
         msg.allocator.free(msg.name);
@@ -80,7 +80,7 @@ pub const Enum = struct {
     bitfield: bool,
     description: ?Description,
     entries: []Entry,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(enm: *Enum) void {
         enm.allocator.free(enm.name);
@@ -98,7 +98,7 @@ pub const Entry = struct {
     summary: ?[]u8,
     since: u32,
     description: ?Description,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(ent: *Entry) void {
         ent.allocator.free(ent.name);
@@ -116,7 +116,7 @@ pub const Arg = struct {
     interface: ?[]u8,
     allow_null: bool,
     @"enum": ?[]u8,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(arg: *Arg) void {
         arg.allocator.free(arg.name);
@@ -140,7 +140,7 @@ pub const ArgKind = enum {
 pub const Description = struct {
     summary: []u8,
     content: []u8,
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
     pub fn deinit(desc: *Description) void {
         desc.allocator.free(desc.summary);
@@ -148,7 +148,7 @@ pub const Description = struct {
     }
 };
 
-pub fn parseFile(allocator: *mem.Allocator, file: []const u8) !Protocol {
+pub fn parseFile(allocator: mem.Allocator, file: []const u8) !Protocol {
     var parser = xml.Parser.init(file);
     while (parser.next()) |ev| switch (ev) {
         .open_tag => |tag| {
@@ -161,7 +161,7 @@ pub fn parseFile(allocator: *mem.Allocator, file: []const u8) !Protocol {
     return error.NoProtocol;
 }
 
-fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
+fn parseProtocol(allocator: mem.Allocator, parser: *xml.Parser) !Protocol {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var copyright: ?Copyright = null;
@@ -209,7 +209,7 @@ fn parseProtocol(allocator: *mem.Allocator, parser: *xml.Parser) !Protocol {
     return error.UnexpectedEof;
 }
 
-fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
+fn parseCopyright(allocator: mem.Allocator, parser: *xml.Parser) !Copyright {
     var content = std.ArrayList(u8).init(allocator);
     errdefer content.deinit();
     while (parser.next()) |ev| switch (ev) {
@@ -229,7 +229,7 @@ fn parseCopyright(allocator: *mem.Allocator, parser: *xml.Parser) !Copyright {
     return error.UnexpectedEof;
 }
 
-fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
+fn parseInterface(allocator: mem.Allocator, parser: *xml.Parser) !Interface {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var version: u32 = 1;
@@ -290,7 +290,7 @@ fn parseInterface(allocator: *mem.Allocator, parser: *xml.Parser) !Interface {
     return error.UnexpectedEof;
 }
 
-fn parseMessage(allocator: *mem.Allocator, parser: *xml.Parser) !Message {
+fn parseMessage(allocator: mem.Allocator, parser: *xml.Parser) !Message {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var is_destructor: bool = false;
@@ -345,7 +345,7 @@ fn parseMessage(allocator: *mem.Allocator, parser: *xml.Parser) !Message {
     return error.UnexpectedEof;
 }
 
-fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
+fn parseEnum(allocator: mem.Allocator, parser: *xml.Parser) !Enum {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var since: u32 = 1;
@@ -400,7 +400,7 @@ fn parseEnum(allocator: *mem.Allocator, parser: *xml.Parser) !Enum {
     return error.UnexpectedEof;
 }
 
-fn parseEntry(allocator: *mem.Allocator, parser: *xml.Parser) !Entry {
+fn parseEntry(allocator: mem.Allocator, parser: *xml.Parser) !Entry {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var value: u32 = 0;
@@ -470,7 +470,7 @@ fn parseArgKind(string: []const u8) !ArgKind {
     }
 }
 
-fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
+fn parseArg(allocator: mem.Allocator, parser: *xml.Parser) !Arg {
     var name: ?[]u8 = null;
     errdefer if (name) |n| allocator.free(n);
     var kind: ArgKind = .new_id;
@@ -529,7 +529,7 @@ fn parseArg(allocator: *mem.Allocator, parser: *xml.Parser) !Arg {
     return error.UnexpectedEof;
 }
 
-fn parseDescription(allocator: *mem.Allocator, parser: *xml.Parser) !Description {
+fn parseDescription(allocator: mem.Allocator, parser: *xml.Parser) !Description {
     var summary: ?[]u8 = null;
     errdefer if (summary) |s| allocator.free(s);
     var content = std.ArrayList(u8).init(allocator);

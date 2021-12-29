@@ -23,13 +23,13 @@ pub const Connection = struct {
 
     wire_conn: WireConnection,
     object_map: ObjectMap(ObjectData, .client),
-    allocator: *mem.Allocator,
+    allocator: mem.Allocator,
 
-    pub fn init(allocator: *mem.Allocator, display_name: ?[]const u8) !Connection {
+    pub fn init(allocator: mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
             if (os.getenv("WAYLAND_SOCKET")) |wayland_socket| {
                 // TODO: set CLOEXEC and unset environment variable
-                break :blk fs.File{
+                break :blk net.Stream{
                     .handle = try std.fmt.parseInt(c_int, wayland_socket, 10),
                 };
             }
@@ -45,7 +45,7 @@ pub const Connection = struct {
 
             var buf: [os.PATH_MAX]u8 = undefined;
             var bufalloc = std.heap.FixedBufferAllocator.init(&buf);
-            const path = fs.path.joinPosix(&bufalloc.allocator, &[_][]const u8{
+            const path = fs.path.join(bufalloc.allocator(), &[_][]const u8{
                 runtime_dir, display_option,
             }) catch |err| switch (err) {
                 error.OutOfMemory => return error.PathTooLong,
@@ -96,7 +96,7 @@ pub const Connection = struct {
 };
 
 test "Connection" {
-    std.meta.refAllDecls(Connection);
+    std.testing.refAllDecls(Connection);
 }
 
 test "Connection: raw request globals" {

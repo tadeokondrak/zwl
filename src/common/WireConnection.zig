@@ -4,11 +4,11 @@ const Buffer = @import("Buffer.zig");
 
 const WireConnection = @This();
 
-socket: std.fs.File,
+socket: std.net.Stream,
 in: Buffer,
 out: Buffer,
 
-pub fn init(socket: std.fs.File) WireConnection {
+pub fn init(socket: std.net.Stream) WireConnection {
     return .{
         .socket = socket,
         .in = Buffer.init(),
@@ -28,7 +28,7 @@ pub fn read(conn: *WireConnection) !void {
         vecs[0..1]
     else
         vecs[0..2];
-    switch (try conn.socket.readv(vec_slice)) {
+    switch (try std.os.readv(conn.socket.handle, vec_slice)) {
         0 => return error.Disconnected,
         else => |n| {
             conn.in.bytes.head +%= @intCast(u12, n);
@@ -48,7 +48,7 @@ pub fn flush(conn: *WireConnection) !void {
         vecs[0..1]
     else
         vecs[0..2];
-    switch (try conn.socket.writev(vec_slice)) {
+    switch (try std.os.writev(conn.socket.handle, vec_slice)) {
         0 => return error.Disconnected,
         else => |n| {
             conn.out.bytes.tail +%= @intCast(u12, n);
@@ -57,5 +57,5 @@ pub fn flush(conn: *WireConnection) !void {
 }
 
 test "WireConnection" {
-    std.meta.refAllDecls(WireConnection);
+    std.testing.refAllDecls(WireConnection);
 }

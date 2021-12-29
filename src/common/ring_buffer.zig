@@ -10,7 +10,7 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
         const Self = @This();
 
         /// The integer type capable of holding an index into the buffer.
-        pub const Index = std.meta.IntType(false, std.math.log2_int(usize, size));
+        pub const Index = std.meta.Int(.unsigned, std.math.log2_int(usize, size));
 
         /// The error returned from functions that write to the buffer.
         pub const Error = error{BufferFull};
@@ -175,77 +175,76 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
 }
 
 test "RingBuffer" {
-    const expect = std.testing.expect;
     const expectError = std.testing.expectError;
     const expectEqual = std.testing.expectEqual;
     {
         const Rb = RingBuffer(u8, 2);
         var rb = Rb.init();
         {
-            expectEqual(@as(Rb.Index, 0), rb.readableLength());
-            expectEqual(@as(Rb.Index, 1), rb.writableLength());
-            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            try expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
         try rb.prepend(0);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readableLength());
-            expectEqual(@as(Rb.Index, 0), rb.writableLength());
-            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
-            expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
+            try expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            try expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
         }
-        expectError(error.BufferFull, rb.prepend(1));
+        try expectError(error.BufferFull, rb.prepend(1));
         {
-            expectEqual(@as(Rb.Index, 1), rb.readableLength());
-            expectEqual(@as(Rb.Index, 0), rb.writableLength());
-            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
-            expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
+            try expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            try expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(u8, 0), rb.readableSlices()[0][0]);
         }
-        expectEqual(@as(?u8, 0), rb.popFirst());
+        try expectEqual(@as(?u8, 0), rb.popFirst());
         {
-            expectEqual(@as(Rb.Index, 0), rb.readableLength());
-            expectEqual(@as(Rb.Index, 1), rb.writableLength());
-            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            try expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
         try rb.prepend(1);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readableLength());
-            expectEqual(@as(Rb.Index, 0), rb.writableLength());
-            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
-            expectEqual(@as(u8, 1), rb.readableSlices()[0][0]);
+            try expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            try expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(u8, 1), rb.readableSlices()[0][0]);
         }
-        expectEqual(@as(?u8, 1), rb.popFirst());
+        try expectEqual(@as(?u8, 1), rb.popFirst());
         {
-            expectEqual(@as(Rb.Index, 0), rb.readableLength());
-            expectEqual(@as(Rb.Index, 1), rb.writableLength());
-            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 1), rb.writableLength());
+            try expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 1), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
         try rb.append(2);
         {
-            expectEqual(@as(Rb.Index, 1), rb.readableLength());
-            expectEqual(@as(Rb.Index, 0), rb.writableLength());
-            expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
-            expectEqual(@as(u8, 2), rb.readableSlices()[0][0]);
+            try expectEqual(@as(Rb.Index, 1), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 0), rb.writableLength());
+            try expectEqual(@as(usize, 1), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(u8, 2), rb.readableSlices()[0][0]);
         }
     }
 
@@ -259,65 +258,65 @@ test "RingBuffer" {
 
         rb.ensureContiguous(9);
 
-        expectEqual(@as(usize, 9), rb.readableSlices()[0].len);
-        expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-        expectEqual(@as(?u8, 9), rb.pop());
-        expectEqual(@as(?u8, 8), rb.pop());
-        expectEqual(@as(?u8, 7), rb.pop());
+        try expectEqual(@as(usize, 9), rb.readableSlices()[0].len);
+        try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+        try expectEqual(@as(?u8, 9), rb.pop());
+        try expectEqual(@as(?u8, 8), rb.pop());
+        try expectEqual(@as(?u8, 7), rb.pop());
 
-        expectEqual(@as(?u8, 1), rb.popFirst());
-        expectEqual(@as(?u8, 2), rb.popFirst());
-        expectEqual(@as(?u8, 3), rb.popFirst());
+        try expectEqual(@as(?u8, 1), rb.popFirst());
+        try expectEqual(@as(?u8, 2), rb.popFirst());
+        try expectEqual(@as(?u8, 3), rb.popFirst());
 
         rb.ensureContiguous(3);
-        expectEqual(@as(usize, 3), rb.readableSlices()[0].len);
-        expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-        expectEqual(@as(usize, 4), rb.readableSlices()[0][0]);
-        expectEqual(@as(usize, 5), rb.readableSlices()[0][1]);
-        expectEqual(@as(usize, 6), rb.readableSlices()[0][2]);
+        try expectEqual(@as(usize, 3), rb.readableSlices()[0].len);
+        try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+        try expectEqual(@as(usize, 4), rb.readableSlices()[0][0]);
+        try expectEqual(@as(usize, 5), rb.readableSlices()[0][1]);
+        try expectEqual(@as(usize, 6), rb.readableSlices()[0][2]);
     }
     {
         const Rb = RingBuffer(u8, 4096);
         var rb = Rb.init();
         {
-            expectEqual(@as(Rb.Index, 0), rb.readableLength());
-            expectEqual(@as(Rb.Index, 4095), rb.writableLength());
-            expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-            expectEqual(@as(usize, 4095), rb.writableSlices()[0].len);
-            expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+            try expectEqual(@as(Rb.Index, 0), rb.readableLength());
+            try expectEqual(@as(Rb.Index, 4095), rb.writableLength());
+            try expectEqual(@as(usize, 0), rb.readableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+            try expectEqual(@as(usize, 4095), rb.writableSlices()[0].len);
+            try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
         }
         var i: u8 = 0;
         while (i < 255) {
             try rb.prepend(i);
             i += 1;
             {
-                expectEqual(@as(Rb.Index, 0) + i, rb.readableLength());
-                expectEqual(@as(Rb.Index, 4095) - i, rb.writableLength());
-                expectEqual(@as(usize, 0) + i, rb.readableSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
-                expectEqual(@as(usize, 4095) - i, rb.writableSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+                try expectEqual(@as(Rb.Index, 0) + i, rb.readableLength());
+                try expectEqual(@as(Rb.Index, 4095) - i, rb.writableLength());
+                try expectEqual(@as(usize, 0) + i, rb.readableSlices()[0].len);
+                try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+                try expectEqual(@as(usize, 4095) - i, rb.writableSlices()[0].len);
+                try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
             }
         }
         i = 0;
         while (i < 255) {
-            expectEqual(@as(?u8, i), rb.popFirst());
+            try expectEqual(@as(?u8, i), rb.popFirst());
             i += 1;
             {
-                expectEqual(@as(Rb.Index, 255) - i, rb.readableLength());
-                expectEqual(@as(Rb.Index, 3840) + i, rb.writableLength());
-                expectEqual(@as(usize, 255) - i, rb.readableSlices()[0].len);
-                expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
+                try expectEqual(@as(Rb.Index, 255) - i, rb.readableLength());
+                try expectEqual(@as(Rb.Index, 3840) + i, rb.writableLength());
+                try expectEqual(@as(usize, 255) - i, rb.readableSlices()[0].len);
+                try expectEqual(@as(usize, 0), rb.readableSlices()[1].len);
                 if (i == 1) {
-                    expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
-                    expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
+                    try expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
+                    try expectEqual(@as(usize, 0), rb.writableSlices()[1].len);
                 } else {
-                    expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
-                    expectEqual(@as(usize, i) - 1, rb.writableSlices()[1].len);
+                    try expectEqual(@as(usize, 3841), rb.writableSlices()[0].len);
+                    try expectEqual(@as(usize, i) - 1, rb.writableSlices()[1].len);
                 }
             }
         }
-        expectEqual(@as(?u8, null), rb.popFirst());
+        try expectEqual(@as(?u8, null), rb.popFirst());
     }
 }
