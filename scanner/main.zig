@@ -211,7 +211,7 @@ const Context = struct {
             \\}}
         , .{});
         try cx.print(
-            \\pub fn unmarshal(_msg: *wayland.Message, _fds: *wayland.Buffer) {0s} {{
+            \\pub fn unmarshal(_msg: *const wayland.Message, _fds: *wayland.Buffer) {0s} {{
             \\    _ = _msg;
             \\    _ = _fds;
             \\    return switch (@intToEnum({0s}, _msg.op)) {{
@@ -526,17 +526,100 @@ const Context = struct {
         , .{});
     }
 
-    fn emitUnmarshal(cx: *Context, message: wayland.Message, kind: MessageKind) !void {
+    fn emitUnmarshal(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
-            \\pub fn unmarshal(_msg: *wayland.Message, _fds: *wayland.Buffer) {s}{s} {{
+            \\pub fn unmarshal(_msg: *const wayland.Message, _fds: *wayland.Buffer) {s}{s} {{
             \\    _ = _msg;
             \\    _ = _fds;
+            \\    var i: usize = 0;
+            \\    _ = i;
         , .{
-            try cx.pascalCase(message.name),
+            try cx.pascalCase(msg.name),
             kind.nameUpper(),
         });
-        // TODO: assert opcode is correct
+        for (msg.args) |arg| {
+            switch (arg.kind) {
+                .new_id, .object => {
+                    if (arg.kind == .new_id and arg.interface == null) {
+                        try cx.print(
+                            \\const arg_{s} = 0;
+                        , .{
+                            try cx.snakeCase(arg.name),
+                        });
+                    } else if (arg.allow_null) {
+                        try cx.print(
+                            \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                            \\i += 4;
+                        , .{
+                            try cx.snakeCase(arg.name),
+                        });
+                    } else {
+                        try cx.print(
+                            \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                            \\i += 4;
+                        , .{
+                            try cx.snakeCase(arg.name),
+                        });
+                    }
+                },
+                .int => {
+                    try cx.print(
+                        \\const arg_{s} = @ptrCast(*align(1) const i32, _msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                    , .{
+                        try cx.snakeCase(arg.name),
+                    });
+                },
+                .uint => {
+                    try cx.print(
+                        \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                    , .{
+                        try cx.snakeCase(arg.name),
+                    });
+                },
+                .fixed => {
+                    try cx.print(
+                        \\const arg_{s} = @ptrCast(*align(1) const i32, _msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                    , .{
+                        try cx.snakeCase(arg.name),
+                    });
+                },
+                .string, .array => {
+                    try cx.print(
+                        \\const arg_{0s}_len = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                        \\const arg_{0s}_padded_len = (arg_{0s}_len + 3) / 4 * 4;
+                        \\const arg_{0s} = _msg.data[i + 4.. i + 4 + arg_{0s}_len];
+                        \\i += 4 + arg_{0s}_padded_len;
+                    , .{
+                        try cx.snakeCase(arg.name),
+                    });
+                },
+                .fd => {
+                    try cx.print(
+                        \\const arg_{s}: std.os.fd_t = -1;
+                    , .{
+                        try cx.snakeCase(arg.name),
+                    });
+                },
+            }
+        }
         try cx.print(
+            \\return {s}{s}{{
+        , .{
+            try cx.pascalCase(msg.name),
+            kind.nameUpper(),
+        });
+        for (msg.args) |arg| {
+            try cx.print(
+                \\.{0s} = arg_{0s},
+            , .{
+                try cx.snakeCase(arg.name),
+            });
+        }
+        try cx.print(
+            \\}};
             \\}}
         , .{});
     }

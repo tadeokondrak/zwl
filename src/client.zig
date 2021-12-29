@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 
 const wl = @import("wl.zig");
 const WireConnection = @import("common/WireConnection.zig");
+const Buffer = @import("common/Buffer.zig");
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
 pub const Object = struct {
@@ -93,6 +94,14 @@ pub const Connection = struct {
             },
         };
     }
+
+    pub fn dispatch(conn: *Connection) !void {
+        var fds = Buffer.init();
+        while (conn.wire_conn.in.getMessage()) |msg| {
+            const ev = wl.Registry.Event.GlobalEvent.unmarshal(&msg, &fds);
+            std.debug.print("{s} {}\n", .{ ev.interface, ev });
+        }
+    }
 };
 
 test "Connection" {
@@ -107,4 +116,26 @@ test "Connection: raw request globals" {
     try conn.wire_conn.out.putUInt(2);
     try conn.flush();
     try conn.read();
+}
+
+test "Connection: request globals with struct" {
+    var conn = try Connection.init(std.testing.allocator, null);
+    defer conn.deinit();
+    const display = conn.display();
+    const registry_data = try conn.object_map.create(null);
+    registry_data.object.* = Connection.ObjectData{
+        .version = 1,
+        .listener = 0,
+    };
+    const registry = wl.Registry{
+        .object = .{
+            .conn = &conn,
+            .id = registry_data.id,
+        },
+    };
+    const req = wl.Display.Request.GetRegistryRequest{ .registry = registry };
+    try req.marshal(display.object.id, &conn.wire_conn.out);
+    try conn.flush();
+    try conn.read();
+    try conn.dispatch();
 }
