@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const wl = @import("wl.zig");
 const WireConnection = @import("common/WireConnection.zig");
 const Buffer = @import("common/Buffer.zig");
+const Message = @import("common/Message.zig");
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
 pub const Object = struct {
@@ -19,7 +20,7 @@ pub const Object = struct {
 pub const Connection = struct {
     const ObjectData = struct {
         version: u32,
-        listener: usize,
+        handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
     };
 
     wire_conn: WireConnection,
@@ -65,7 +66,7 @@ pub const Connection = struct {
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
-            .listener = 0,
+            .handler = displayHandler,
         };
 
         const conn = Connection{
@@ -90,6 +91,11 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
+    fn displayHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
+        const event = wl.Display.Event.unmarshal(conn, &msg, fds);
+        std.debug.print("{}\n", .{event});
+    }
+
     pub fn display(conn: *Connection) wl.Display {
         return wl.Display{
             .object = .{
@@ -102,8 +108,8 @@ pub const Connection = struct {
     pub fn dispatch(conn: *Connection) !void {
         var fds = Buffer.init();
         while (conn.wire_conn.in.getMessage()) |msg| {
-            const ev = wl.Registry.Event.GlobalEvent.unmarshal(&msg, &fds);
-            std.debug.print("{s} {}\n", .{ ev.interface, ev });
+            const object_data = conn.object_map.get(msg.id);
+            object_data.?.handler(conn, msg, &fds);
         }
     }
 };
@@ -122,6 +128,11 @@ test "Connection: raw request globals" {
     try conn.read();
 }
 
+fn registryHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
+    const event = wl.Registry.Event.unmarshal(conn, &msg, fds);
+    std.debug.print("{}\n", .{event});
+}
+
 test "Connection: request globals with struct" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
@@ -129,7 +140,7 @@ test "Connection: request globals with struct" {
     const registry_data = try conn.object_map.create(null);
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
-        .listener = 0,
+        .handler = registryHandler,
     };
     const registry = wl.Registry{
         .object = .{

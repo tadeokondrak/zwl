@@ -25,7 +25,7 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
             next: u32,
 
             fn get(list: *FreeList, i: u32) ?*Object {
-                if (i < list.array.items.len)
+                if (i >= list.array.items.len)
                     return null;
                 switch (list.array.items[i]) {
                     .object => |*object| return object,

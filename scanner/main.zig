@@ -211,17 +211,24 @@ const Context = struct {
             \\}}
         , .{});
         try cx.print(
-            \\pub fn unmarshal(_msg: *const wayland.Message, _fds: *wayland.Buffer) {0s} {{
+            \\pub fn unmarshal(
+            \\    _conn: *wayland.client.Connection,
+            \\    _msg: *const wayland.Message,
+            \\    _fds: *wayland.Buffer,
+            \\) {0s} {{
+            \\    _ = _conn;
             \\    _ = _msg;
             \\    _ = _fds;
-            \\    return switch (@intToEnum({0s}, _msg.op)) {{
+            \\    return switch (@intToEnum(std.meta.Tag({0s}), _msg.op)) {{
         , .{
             kind.nameUpper(),
         });
         for (msgs) |msg| {
             try cx.print(
-                \\.{s} => {s}{s}.unmarshal(_msg, _fds),
+                \\.{s} => {s}{{ .{s} = {s}{s}.unmarshal(_conn, _msg, _fds) }},
             , .{
+                try cx.snakeCase(msg.name),
+                kind.nameUpper(),
                 try cx.snakeCase(msg.name),
                 try cx.pascalCase(msg.name),
                 kind.nameUpper(),
@@ -528,7 +535,12 @@ const Context = struct {
 
     fn emitUnmarshal(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
-            \\pub fn unmarshal(_msg: *const wayland.Message, _fds: *wayland.Buffer) {s}{s} {{
+            \\pub fn unmarshal(
+            \\    _conn: *wayland.client.Connection,
+            \\    _msg: *const wayland.Message,
+            \\    _fds: *wayland.Buffer,
+            \\) {s}{s} {{
+            \\    _ = _conn;
             \\    _ = _msg;
             \\    _ = _fds;
             \\    var i: usize = 0;
@@ -542,21 +554,23 @@ const Context = struct {
                 .new_id, .object => {
                     if (arg.kind == .new_id and arg.interface == null) {
                         try cx.print(
-                            \\const arg_{s} = 0;
+                            \\const arg_{s} = undefined;
                         , .{
                             try cx.snakeCase(arg.name),
                         });
                     } else if (arg.allow_null) {
                         try cx.print(
-                            \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                            \\const arg_{0s}_id = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
                             \\i += 4;
+                            \\const arg_{0s} = wayland.client.Object {{ .conn = _conn, .id = arg_{0s}_id }};
                         , .{
                             try cx.snakeCase(arg.name),
                         });
                     } else {
                         try cx.print(
-                            \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
+                            \\const arg_{0s}_id = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
                             \\i += 4;
+                            \\const arg_{0s} = wayland.client.Object {{ .conn = _conn, .id = arg_{0s}_id }};
                         , .{
                             try cx.snakeCase(arg.name),
                         });
