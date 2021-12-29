@@ -137,17 +137,17 @@ const Context = struct {
             iface.name,
             iface.version,
         });
+        try cx.emitEnums(iface.enums);
         try cx.emitMessages(iface, iface.requests, .request);
         try cx.emitMessages(iface, iface.events, .event);
-        try cx.emitEnums(iface.enums);
         try cx.print(
             \\}};
         , .{});
     }
 
     fn emitMessages(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
-        try cx.emitMessageEnum(msgs, kind);
         try cx.emitMessageUnion(iface, msgs, kind);
+        try cx.emitMessageEnum(msgs, kind);
     }
 
     fn emitMessageEnum(cx: *Context, msgs: []wayland.Message, kind: MessageKind) !void {
@@ -165,7 +165,6 @@ const Context = struct {
             });
         }
         try cx.print(
-            \\    _,
             \\}};
         , .{});
     }
@@ -188,44 +187,40 @@ const Context = struct {
         for (msgs) |msg|
             try cx.emitMessageStruct(msg, kind);
         try cx.print(
-            \\pub fn marshal(_{0s}: {1s}, _id: u32, _buf: *wayland.Buffer)
-            \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
-            \\    _ = _{0s};
-            \\    _ = _id;
-            \\    _ = _buf;
-            \\    return switch (_{0s}) {{
+            \\pub fn marshal(
+            \\    {0s}: {1s},
+            \\    id: u32,
+            \\    buf: *wayland.Buffer
+            \\) error{{BufferFull}}!void {{
+            \\    return switch ({0s}) {{
         , .{
             kind.nameLower(),
             kind.nameUpper(),
         });
         for (msgs) |msg| {
             try cx.print(
-                \\.{0s} => |{0s}| {0s}.marshal(_id, _buf),
+                \\.{0s} => |{0s}| {0s}.marshal(id, buf),
             , .{
                 try cx.snakeCase(msg.name),
             });
         }
         try cx.print(
-            \\        _ => unreachable,
             \\    }};
             \\}}
         , .{});
         try cx.print(
             \\pub fn unmarshal(
-            \\    _conn: *wayland.client.Connection,
-            \\    _msg: *const wayland.Message,
-            \\    _fds: *wayland.Buffer,
+            \\    conn: *wayland.client.Connection,
+            \\    msg: wayland.Message,
+            \\    fds: *wayland.Buffer,
             \\) {0s} {{
-            \\    _ = _conn;
-            \\    _ = _msg;
-            \\    _ = _fds;
-            \\    return switch (@intToEnum(std.meta.Tag({0s}), _msg.op)) {{
+            \\    return switch (@intToEnum(std.meta.Tag({0s}), msg.op)) {{
         , .{
             kind.nameUpper(),
         });
         for (msgs) |msg| {
             try cx.print(
-                \\.{s} => {s}{{ .{s} = {s}{s}.unmarshal(_conn, _msg, _fds) }},
+                \\.{s} => {s}{{ .{s} = {s}{s}.unmarshal(conn, msg, fds) }},
             , .{
                 try cx.snakeCase(msg.name),
                 kind.nameUpper(),
@@ -235,7 +230,6 @@ const Context = struct {
             });
         }
         try cx.print(
-            \\        _ => unreachable,
             \\    }};
             \\}}
             \\}};
@@ -292,12 +286,18 @@ const Context = struct {
     }
 
     fn emitEnums(cx: *Context, enums: []wayland.Enum) !void {
+        try cx.print(
+            \\pub const Enum = struct {{
+        , .{});
         for (enums) |@"enum"| {
             if (@"enum".bitfield)
                 try cx.emitBitfield(@"enum")
             else
                 try cx.emitEnum(@"enum");
         }
+        try cx.print(
+            \\}};
+        , .{});
     }
 
     fn emitBitfield(cx: *Context, bitfield: wayland.Enum) !void {
@@ -315,7 +315,7 @@ const Context = struct {
         }
         try cx.print(
             \\pub fn toInt({s}: {s}) u32 {{
-            \\    var _result: u32 = 0;
+            \\    var result: u32 = 0;
         , .{
             try cx.snakeCase(bitfield.name),
             try cx.pascalCase(bitfield.name),
@@ -323,7 +323,7 @@ const Context = struct {
         for (bitfield.entries) |entry| {
             try cx.print(
                 \\if ({s}.{s})
-                \\    _result &= {};
+                \\    result &= {};
             , .{
                 try cx.snakeCase(bitfield.name),
                 try cx.snakeCase(entry.name),
@@ -331,11 +331,11 @@ const Context = struct {
             });
         }
         try cx.print(
-            \\    return _result;
+            \\    return result;
             \\}}
         , .{});
         try cx.print(
-            \\pub fn fromInt(_int: u32) {s} {{
+            \\pub fn fromInt(int: u32) {s} {{
             \\    return {s}{{
         , .{
             try cx.pascalCase(bitfield.name),
@@ -343,7 +343,7 @@ const Context = struct {
         });
         for (bitfield.entries) |entry| {
             try cx.print(
-                \\.{s} = (_int & {}) != 0,
+                \\.{s} = (int & {}) != 0,
             , .{
                 try cx.snakeCase(entry.name),
                 entry.value,
@@ -376,8 +376,8 @@ const Context = struct {
             \\    pub fn toInt({s}: {s}) u32 {{
             \\        return @enumToInt({s});
             \\    }}
-            \\    pub fn fromInt(_int: u32) {s} {{
-            \\        return @intToEnum({s}, _int);
+            \\    pub fn fromInt(int: u32) {s} {{
+            \\        return @intToEnum({s}, int);
             \\    }}
             \\}};
         , .{
@@ -391,13 +391,13 @@ const Context = struct {
 
     fn emitMarshal(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
-            \\pub fn marshal({0s}: {1s}{2s}, _id: u32, _buf: *wayland.Buffer)
-            \\    error{{ BytesBufferFull, FdsBufferFull }}!void {{
-            \\    _ = {0s};
-            \\    _ = _id;
-            \\    _ = _buf;
+            \\pub fn marshal(
+            \\    {0s}: {1s}{2s},
+            \\    id: u32,
+            \\    buf: *wayland.Buffer,
+            \\) error{{BufferFull}}!void {{
         , .{
-            try cx.snakeCase(msg.name),
+            if (msg.args.len != 0) (try cx.snakeCase(msg.name)) else "_",
             try cx.pascalCase(msg.name),
             kind.nameUpper(),
         });
@@ -437,12 +437,13 @@ const Context = struct {
             },
         };
         try cx.print(
-            \\if (_buf.bytes.writableLength() < ({0}{1s}))
-            \\    return error.BytesBufferFull;
-            \\if (_buf.fds.writableLength() < ({2}))
-            \\    return error.FdsBufferFull;
-            \\_buf.putUInt(_id) catch unreachable;
-            \\_buf.putUInt(@intCast(u32, @as(usize, ({0}{1s}) << 16)) | @enumToInt({3s}Opcode.{4s})) catch unreachable;
+            \\const len: usize = {0}{1s};
+            \\if (buf.bytes.writableLength() < len)
+            \\    return error.BufferFull;
+            \\if (buf.fds.writableLength() < {2})
+            \\    return error.BufferFull;
+            \\buf.putUInt(id) catch unreachable;
+            \\buf.putUInt(@intCast(u32, len << 16) | @enumToInt({3s}Opcode.{4s})) catch unreachable;
         , .{
             size_bytes,
             extra.items,
@@ -455,23 +456,23 @@ const Context = struct {
                 .new_id, .object => {
                     if (arg.kind == .new_id and arg.interface == null) {
                         try cx.print(
-                            \\_buf.putString({0s}.interface) catch unreachable;
-                            \\_buf.putUInt({0s}.version) catch unreachable;
-                            \\_buf.putUInt({0s}.{1s}.id) catch unreachable;
+                            \\buf.putString({0s}.interface) catch unreachable;
+                            \\buf.putUInt({0s}.version) catch unreachable;
+                            \\buf.putUInt({0s}.{1s}.id) catch unreachable;
                         , .{
                             try cx.snakeCase(msg.name),
                             try cx.snakeCase(arg.name),
                         });
                     } else if (arg.allow_null) {
                         try cx.print(
-                            \\_buf.putUInt(if ({s}.{s}) |_obj| _obj.object.id else 0) catch unreachable;
+                            \\buf.putUInt(if ({s}.{s}) |_obj| _obj.object.id else 0) catch unreachable;
                         , .{
                             try cx.snakeCase(msg.name),
                             try cx.snakeCase(arg.name),
                         });
                     } else {
                         try cx.print(
-                            \\_buf.putUInt({s}.{s}.object.id) catch unreachable;
+                            \\buf.putUInt({s}.{s}.object.id) catch unreachable;
                         , .{
                             try cx.snakeCase(msg.name),
                             try cx.snakeCase(arg.name),
@@ -480,7 +481,7 @@ const Context = struct {
                 },
                 .int => {
                     try cx.print(
-                        \\_buf.putInt({s}.{s}) catch unreachable;
+                        \\buf.putInt({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -488,7 +489,7 @@ const Context = struct {
                 },
                 .uint => {
                     try cx.print(
-                        \\_buf.putUInt({s}.{s}) catch unreachable;
+                        \\buf.putUInt({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -496,7 +497,7 @@ const Context = struct {
                 },
                 .fixed => {
                     try cx.print(
-                        \\_buf.putFixed({s}.{s}) catch unreachable;
+                        \\buf.putFixed({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -504,7 +505,7 @@ const Context = struct {
                 },
                 .string => {
                     try cx.print(
-                        \\_buf.putString({s}.{s}) catch unreachable;
+                        \\buf.putString({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -512,7 +513,7 @@ const Context = struct {
                 },
                 .array => {
                     try cx.print(
-                        \\_buf.putArray({s}.{s}) catch unreachable;
+                        \\buf.putArray({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -520,7 +521,7 @@ const Context = struct {
                 },
                 .fd => {
                     try cx.print(
-                        \\_buf.putFd({s}.{s}) catch unreachable;
+                        \\buf.putFd({s}.{s}) catch unreachable;
                     , .{
                         try cx.snakeCase(msg.name),
                         try cx.snakeCase(arg.name),
@@ -534,90 +535,34 @@ const Context = struct {
     }
 
     fn emitUnmarshal(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
+        var conn_arg_name: []const u8 = "_";
+        var msg_arg_name: []const u8 = "_";
+        var fd_arg_name: []const u8 = "_";
+        if (msg.args.len != 0)
+            msg_arg_name = "msg";
+        for (msg.args) |arg| {
+            if (arg.kind == .new_id or arg.kind == .object)
+                conn_arg_name = "conn";
+            if (arg.kind == .fd)
+                fd_arg_name = "fds";
+        }
         try cx.print(
             \\pub fn unmarshal(
-            \\    _conn: *wayland.client.Connection,
-            \\    _msg: *const wayland.Message,
-            \\    _fds: *wayland.Buffer,
+            \\    {s}: *wayland.client.Connection,
+            \\    {s}: wayland.Message,
+            \\    {s}: *wayland.Buffer,
             \\) {s}{s} {{
-            \\    _ = _conn;
-            \\    _ = _msg;
-            \\    _ = _fds;
-            \\    var i: usize = 0;
-            \\    _ = i;
         , .{
+            conn_arg_name,
+            msg_arg_name,
+            fd_arg_name,
             try cx.pascalCase(msg.name),
             kind.nameUpper(),
         });
-        for (msg.args) |arg| {
-            switch (arg.kind) {
-                .new_id, .object => {
-                    if (arg.kind == .new_id and arg.interface == null) {
-                        try cx.print(
-                            \\const arg_{s} = undefined;
-                        , .{
-                            try cx.snakeCase(arg.name),
-                        });
-                    } else if (arg.allow_null) {
-                        try cx.print(
-                            \\const arg_{0s}_id = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
-                            \\i += 4;
-                            \\const arg_{0s} = wayland.client.Object {{ .conn = _conn, .id = arg_{0s}_id }};
-                        , .{
-                            try cx.snakeCase(arg.name),
-                        });
-                    } else {
-                        try cx.print(
-                            \\const arg_{0s}_id = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
-                            \\i += 4;
-                            \\const arg_{0s} = wayland.client.Object {{ .conn = _conn, .id = arg_{0s}_id }};
-                        , .{
-                            try cx.snakeCase(arg.name),
-                        });
-                    }
-                },
-                .int => {
-                    try cx.print(
-                        \\const arg_{s} = @ptrCast(*align(1) const i32, _msg.data[i .. i + 4]).*;
-                        \\i += 4;
-                    , .{
-                        try cx.snakeCase(arg.name),
-                    });
-                },
-                .uint => {
-                    try cx.print(
-                        \\const arg_{s} = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
-                        \\i += 4;
-                    , .{
-                        try cx.snakeCase(arg.name),
-                    });
-                },
-                .fixed => {
-                    try cx.print(
-                        \\const arg_{s} = @ptrCast(*align(1) const i32, _msg.data[i .. i + 4]).*;
-                        \\i += 4;
-                    , .{
-                        try cx.snakeCase(arg.name),
-                    });
-                },
-                .string, .array => {
-                    try cx.print(
-                        \\const arg_{0s}_len = @ptrCast(*align(1) const u32, _msg.data[i .. i + 4]).*;
-                        \\const arg_{0s}_padded_len = (arg_{0s}_len + 3) / 4 * 4;
-                        \\const arg_{0s} = _msg.data[i + 4.. i + 4 + arg_{0s}_len];
-                        \\i += 4 + arg_{0s}_padded_len;
-                    , .{
-                        try cx.snakeCase(arg.name),
-                    });
-                },
-                .fd => {
-                    try cx.print(
-                        \\const arg_{s}: std.os.fd_t = -1;
-                    , .{
-                        try cx.snakeCase(arg.name),
-                    });
-                },
-            }
+        if (msg.args.len != 0) {
+            try cx.print(
+                \\var i: usize = 0;
+            , .{});
         }
         try cx.print(
             \\return {s}{s}{{
@@ -627,10 +572,71 @@ const Context = struct {
         });
         for (msg.args) |arg| {
             try cx.print(
-                \\.{0s} = arg_{0s},
+                \\.{s} = blk: {{
             , .{
                 try cx.snakeCase(arg.name),
             });
+            switch (arg.kind) {
+                .new_id, .object => {
+                    if (arg.kind == .new_id and arg.interface == null) {
+                        try cx.print(
+                            \\_ = conn;
+                            \\break :blk undefined;
+                        , .{});
+                    } else if (arg.allow_null) {
+                        try cx.print(
+                            \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
+                            \\i += 4;
+                            \\break :blk wayland.client.Object {{ .conn = conn, .id = arg_id }};
+                        , .{});
+                    } else {
+                        try cx.print(
+                            \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
+                            \\i += 4;
+                            \\break :blk wayland.client.Object {{ .conn = conn, .id = arg_id }};
+                        , .{});
+                    }
+                },
+                .int => {
+                    try cx.print(
+                        \\const arg = @ptrCast(*align(1) const i32, msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                        \\break :blk arg;
+                    , .{});
+                },
+                .uint => {
+                    try cx.print(
+                        \\const arg = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                        \\break :blk arg;
+                    , .{});
+                },
+                .fixed => {
+                    try cx.print(
+                        \\const arg = @ptrCast(*align(1) const i32, msg.data[i .. i + 4]).*;
+                        \\i += 4;
+                        \\break :blk arg;
+                    , .{});
+                },
+                .string, .array => {
+                    try cx.print(
+                        \\const arg_len = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
+                        \\const arg_padded_len = (arg_len + 3) / 4 * 4;
+                        \\const arg = msg.data[i + 4.. i + 4 + arg_len];
+                        \\i += 4 + arg_padded_len;
+                        \\break :blk arg;
+                    , .{});
+                },
+                .fd => {
+                    try cx.print(
+                        \\_ = fds;
+                        \\break :blk undefined;
+                    , .{});
+                },
+            }
+            try cx.print(
+                \\}},
+            , .{});
         }
         try cx.print(
             \\}};

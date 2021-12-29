@@ -92,7 +92,7 @@ pub const Connection = struct {
     }
 
     fn displayHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
-        const event = wl.Display.Event.unmarshal(conn, &msg, fds);
+        const event = wl.Display.Event.unmarshal(conn, msg, fds);
         std.debug.print("{}\n", .{event});
     }
 
@@ -129,7 +129,7 @@ test "Connection: raw request globals" {
 }
 
 fn registryHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
-    const event = wl.Registry.Event.unmarshal(conn, &msg, fds);
+    const event = wl.Registry.Event.unmarshal(conn, msg, fds);
     std.debug.print("{}\n", .{event});
 }
 
