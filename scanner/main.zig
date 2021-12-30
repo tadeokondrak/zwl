@@ -137,11 +137,147 @@ const Context = struct {
             iface.name,
             iface.version,
         });
+        try cx.emitMethods(iface, iface.requests, .request);
         try cx.emitEnums(iface.enums);
         try cx.emitMessages(iface, iface.requests, .request);
         try cx.emitMessages(iface, iface.events, .event);
         try cx.print(
             \\}};
+        , .{});
+    }
+
+    fn emitMethods(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
+        for (msgs) |msg|
+            try cx.emitMethod(iface, msg, kind);
+    }
+
+    fn emitMethod(cx: *Context, iface: wayland.Interface, msg: wayland.Message, kind: MessageKind) !void {
+        try cx.print(
+            \\pub fn req{s}(
+            \\    {s}: {s},
+        , .{
+            try cx.pascalCase(msg.name),
+            try cx.snakeCase(cx.trimPrefix(iface.name)),
+            try cx.pascalCase(cx.trimPrefix(iface.name)),
+        });
+        var return_expr: []const u8 = "";
+        var return_type: []const u8 = "void";
+        var extra_errors: []const u8 = "";
+        for (msg.args) |arg| {
+            switch (arg.kind) {
+                .int, .uint, .fixed, .string, .array, .fd => {
+                    try cx.print(
+                        \\arg_{s}: {s},
+                    , .{
+                        try cx.snakeCase(arg.name),
+                        try cx.argType(arg),
+                    });
+                },
+                .new_id => {
+                    if (arg.interface) |iface_name| {
+                        return_type = try cx.pascalCase(cx.trimPrefix(iface_name));
+                    } else {
+                        try cx.print(
+                            \\comptime T: anytype,
+                            \\arg_{s}_version: u32,
+                        , .{
+                            try cx.snakeCase(arg.name),
+                        });
+                        return_type = "T";
+                    }
+                    extra_errors = ",OutOfMemory";
+                    return_expr = try std.fmt.allocPrint(cx.allocator, "arg_{s}", .{try cx.snakeCase(arg.name)});
+                },
+                .object => {
+                    if (arg.interface) |iface_name| {
+                        try cx.print("arg_{s}: {s}{s},", .{
+                            try cx.snakeCase(arg.name),
+                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
+                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                        });
+                    } else {
+                        try cx.print("arg_{s}: {s}wayland.client.Object,", .{
+                            try cx.snakeCase(arg.name),
+                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
+                        });
+                    }
+                },
+            }
+        }
+        try cx.print(
+            \\) error{{BufferFull{s}}}!{s} {{
+        , .{ extra_errors, return_type });
+        for (msg.args) |arg| {
+            switch (arg.kind) {
+                .new_id => {
+                    if (arg.interface) |iface_name| {
+                        try cx.print(
+                            \\const arg_{0s}_data = try {1s}.object.conn.object_map.create();
+                            \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
+                            \\    .version = 1,
+                            \\    .handler = null,
+                            \\}};
+                            \\const arg_{0s} = {2s}{{
+                            \\    .object = wayland.client.Object{{
+                            \\        .conn = {1s}.object.conn,
+                            \\        .id = arg_{0s}_data.id,
+                            \\    }},
+                            \\}};
+                        , .{
+                            try cx.snakeCase(arg.name),
+                            try cx.snakeCase(cx.trimPrefix(iface.name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
+                        });
+                    } else {
+                        try cx.print(
+                            \\const arg_{0s}_data = try {1s}.object.conn.object_map.create();
+                            \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
+                            \\    .version = arg_{0s}_version,
+                            \\    .handler = null,
+                            \\}};
+                            \\const arg_{0s} = wayland.client.Object{{
+                            \\    .conn = {1s}.object.conn,
+                            \\    .id = arg_{0s}_data.id,
+                            \\}};
+                        , .{
+                            try cx.snakeCase(arg.name),
+                            try cx.snakeCase(cx.trimPrefix(iface.name)),
+                        });
+                    }
+                },
+                else => {},
+            }
+        }
+        try cx.print(
+            \\const {s} = {s}.{s}{s}{{
+        , .{
+            kind.nameLower(),
+            kind.nameUpper(),
+            try cx.pascalCase(msg.name),
+            kind.nameUpper(),
+        });
+        for (msg.args) |arg| {
+            try cx.print(
+                \\.{s} = arg_{s},
+            , .{
+                try cx.snakeCase(arg.name),
+                try cx.snakeCase(arg.name),
+            });
+        }
+        try cx.print(
+            \\}};
+            \\try request.marshal({s}.object.id, &{s}.object.conn.wire_conn.out);
+        , .{
+            try cx.snakeCase(cx.trimPrefix(iface.name)),
+            try cx.snakeCase(cx.trimPrefix(iface.name)),
+        });
+        if (return_expr.len != 0) {
+            try cx.print(
+                \\return {s};
+            , .{return_expr});
+        }
+        try cx.print(
+            \\}}
         , .{});
     }
 

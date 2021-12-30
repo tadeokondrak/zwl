@@ -14,6 +14,7 @@ pub const Side = enum {
 
 pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
     return struct {
+        const Error = error{ OutOfMemory, NonSequentialObjectCreation };
         const Self = @This();
         const FreeList = struct {
             const Elem = union(enum) {
@@ -33,7 +34,7 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
                 }
             }
 
-            fn create(list: *FreeList, i: u32) !*Object {
+            fn create(list: *FreeList, i: u32) Error!*Object {
                 if (i < list.array.items.len) {
                     const elem = &list.array.items[i];
                     elem.* = Elem{ .object = undefined };
@@ -85,19 +86,26 @@ pub fn ObjectMap(comptime Object: type, comptime side: Side) type {
             id: u32,
         };
 
-        pub fn create(map: *Self, id: ?u32) !NewObject {
-            const new_id = id orelse switch (side) {
+        pub fn create(map: *Self) error{OutOfMemory}!NewObject {
+            const id = switch (side) {
                 .client => client_start + map.client.next,
                 .server => server_start + map.server.next,
             };
-            const object = switch (new_id) {
+            return map.createId(id) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.NonSequentialObjectCreation => unreachable,
+            };
+        }
+
+        pub fn createId(map: *Self, id: u32) Error!NewObject {
+            const object = switch (id) {
                 0 => unreachable,
-                client_start...client_end => try map.client.create(new_id - client_start),
-                server_start...server_end => try map.server.create(new_id - server_start),
+                client_start...client_end => try map.client.create(id - client_start),
+                server_start...server_end => try map.server.create(id - server_start),
             };
             return NewObject{
                 .object = object,
-                .id = new_id,
+                .id = id,
             };
         }
     };

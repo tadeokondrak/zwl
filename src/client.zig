@@ -18,9 +18,10 @@ pub const Object = struct {
 };
 
 pub const Connection = struct {
-    const ObjectData = struct {
+    // TODO: make this not public
+    pub const ObjectData = struct {
         version: u32,
-        handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
+        handler: ?fn (conn: *Connection, msg: Message, fds: *Buffer) void,
     };
 
     wire_conn: WireConnection,
@@ -62,7 +63,7 @@ pub const Connection = struct {
         var object_map = ObjectMap(ObjectData, .client).init(allocator);
         errdefer object_map.deinit();
 
-        const display_data = try object_map.create(1);
+        const display_data = try object_map.createId(1);
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
@@ -109,7 +110,9 @@ pub const Connection = struct {
         var fds = Buffer.init();
         while (conn.wire_conn.in.getMessage()) |msg| {
             const object_data = conn.object_map.get(msg.id);
-            object_data.?.handler(conn, msg, &fds);
+            // TODO: handler should be unconditionally required
+            if (object_data.?.handler) |handler|
+                handler(conn, msg, &fds);
         }
     }
 };
@@ -137,7 +140,7 @@ test "Connection: request globals with struct" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
     const display = conn.display();
-    const registry_data = try conn.object_map.create(null);
+    const registry_data = try conn.object_map.create();
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
         .handler = registryHandler,
@@ -150,6 +153,16 @@ test "Connection: request globals with struct" {
     };
     const req = wl.Display.Request.GetRegistryRequest{ .registry = registry };
     try req.marshal(display.object.id, &conn.wire_conn.out);
+    try conn.flush();
+    try conn.read();
+    try conn.dispatch();
+}
+
+test "Connection: request globals with method" {
+    var conn = try Connection.init(std.testing.allocator, null);
+    defer conn.deinit();
+    const display = conn.display();
+    _ = try display.reqGetRegistry();
     try conn.flush();
     try conn.read();
     try conn.dispatch();
