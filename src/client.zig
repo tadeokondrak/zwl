@@ -12,11 +12,6 @@ const Buffer = @import("common/Buffer.zig");
 const Message = @import("common/Message.zig");
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
-pub const Object = struct {
-    id: u32,
-    pub const nil = Object{ .id = 0 };
-};
-
 pub const Connection = struct {
     // TODO: make this not public
     pub const ObjectData = struct {
@@ -96,11 +91,7 @@ pub const Connection = struct {
     }
 
     pub fn display(_: *Connection) wl.Display {
-        return wl.Display{
-            .object = .{
-                .id = 1,
-            },
-        };
+        return wl.Display{ .id = 1 };
     }
 
     pub fn dispatch(conn: *Connection) !void {
@@ -136,13 +127,9 @@ test "Connection: request globals with struct" {
         .handler = wl.Registry.defaultHandler,
         .user_data = 0,
     };
-    const registry = wl.Registry{
-        .object = .{
-            .id = registry_data.id,
-        },
-    };
+    const registry = wl.Registry{ .id = registry_data.id };
     const req = wl.Display.Request.GetRegistry{ .registry = registry };
-    try req.marshal(display.object.id, &conn.wire_conn.out);
+    try req.marshal(display.id, &conn.wire_conn.out);
     try conn.flush();
     try conn.read();
     try conn.dispatch();

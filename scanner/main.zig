@@ -131,7 +131,7 @@ const Context = struct {
         const type_name = try cx.pascalCase(trimmed);
         try cx.print(
             \\pub const {s} = struct {{
-            \\    object: wayland.client.Object,
+            \\    id: u32,
             \\    pub const interface = "{s}";
             \\    pub const version = {};
         , .{
@@ -232,7 +232,7 @@ const Context = struct {
                             cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
-                        try cx.print("arg_{s}: wayland.client.Object,", .{
+                        try cx.print("arg_{s}: u32,", .{
                             try cx.snakeCase(arg.name),
                         });
                     }
@@ -254,9 +254,7 @@ const Context = struct {
                             \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = {1s}{{
-                            \\    .object = wayland.client.Object{{
-                            \\        .id = arg_{0s}_data.id,
-                            \\    }},
+                            \\    .id = arg_{0s}_data.id,
                             \\}};
                         , .{
                             try cx.snakeCase(arg.name),
@@ -270,9 +268,7 @@ const Context = struct {
                             \\    .handler = defaultHandler,
                             \\    .user_data = 0,
                             \\}};
-                            \\const arg_{0s} = wayland.client.Object{{
-                            \\    .id = arg_{0s}_data.id,
-                            \\}};
+                            \\const arg_{0s} = arg_{0s}_data.id;
                         , .{
                             try cx.snakeCase(arg.name),
                         });
@@ -298,7 +294,7 @@ const Context = struct {
         }
         try cx.print(
             \\}};
-            \\try request.marshal(self.object.id, &conn.wire_conn.out);
+            \\try request.marshal(self.id, &conn.wire_conn.out);
         , .{});
         if (return_expr.len != 0) {
             try cx.print(
@@ -398,7 +394,7 @@ const Context = struct {
                             cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
-                        try cx.print("interface: []const u8, version: u32, {s}: wayland.client.Object,", .{
+                        try cx.print("interface: []const u8, version: u32, {s}: u32,", .{
                             try cx.snakeCase(arg.name),
                         });
                     }
@@ -411,9 +407,8 @@ const Context = struct {
                             cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
-                        try cx.print("{s}: {s}wayland.client.Object,", .{
+                        try cx.print("{s}: u32,", .{
                             try cx.snakeCase(arg.name),
-                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
                         });
                     }
                 },
@@ -597,15 +592,9 @@ const Context = struct {
                         , .{
                             try cx.snakeCase(arg.name),
                         });
-                    } else if (arg.allow_null) {
-                        try cx.print(
-                            \\buf.putUInt(if (self.{s}) |_obj| _obj.object.id else 0) catch unreachable;
-                        , .{
-                            try cx.snakeCase(arg.name),
-                        });
                     } else {
                         try cx.print(
-                            \\buf.putUInt(self.{s}.object.id) catch unreachable;
+                            \\buf.putUInt(self.{s}.id) catch unreachable;
                         , .{
                             try cx.snakeCase(arg.name),
                         });
@@ -688,17 +677,11 @@ const Context = struct {
                         try cx.print(
                             \\break :blk undefined;
                         , .{});
-                    } else if (arg.allow_null) {
-                        try cx.print(
-                            \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
-                            \\i += 4;
-                            \\break :blk wayland.client.Object {{ .id = arg_id }};
-                        , .{});
                     } else {
                         try cx.print(
                             \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
                             \\i += 4;
-                            \\break :blk wayland.client.Object {{ .id = arg_id }};
+                            \\break :blk arg_id;
                         , .{});
                     }
                 },
