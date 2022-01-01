@@ -13,8 +13,8 @@ const Message = @import("common/Message.zig");
 const ObjectMap = @import("common/object_map.zig").ObjectMap;
 
 pub const Object = struct {
-    conn: *Connection,
     id: u32,
+    pub const nil = Object{ .id = 0 };
 };
 
 pub const Connection = struct {
@@ -22,6 +22,7 @@ pub const Connection = struct {
     pub const ObjectData = struct {
         version: u32,
         handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
+        user_data: usize,
     };
 
     wire_conn: WireConnection,
@@ -29,6 +30,7 @@ pub const Connection = struct {
     allocator: mem.Allocator,
 
     // TODO: explicit error set
+
     pub fn init(allocator: mem.Allocator, display_name: ?[]const u8) !Connection {
         const socket = blk: {
             if (os.getenv("WAYLAND_SOCKET")) |wayland_socket| {
@@ -68,6 +70,7 @@ pub const Connection = struct {
         display_data.object.* = ObjectData{
             .version = 1,
             .handler = wl.Display.defaultHandler,
+            .user_data = 0,
         };
 
         const conn = Connection{
@@ -92,10 +95,9 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
-    pub fn display(conn: *Connection) wl.Display {
+    pub fn display(_: *Connection) wl.Display {
         return wl.Display{
             .object = .{
-                .conn = conn,
                 .id = 1,
             },
         };
@@ -132,10 +134,10 @@ test "Connection: request globals with struct" {
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
         .handler = wl.Registry.defaultHandler,
+        .user_data = 0,
     };
     const registry = wl.Registry{
         .object = .{
-            .conn = &conn,
             .id = registry_data.id,
         },
     };
@@ -150,7 +152,7 @@ test "Connection: request globals with method" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
     const display = conn.display();
-    _ = try display.getRegistry();
+    _ = try display.getRegistry(&conn);
     try conn.flush();
     try conn.read();
     try conn.dispatch();

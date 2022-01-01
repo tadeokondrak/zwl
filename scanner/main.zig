@@ -193,6 +193,7 @@ const Context = struct {
         try cx.print(
             \\pub fn {s}(
             \\    self: @This(),
+            \\    conn: *wayland.client.Connection,
         , .{
             try cx.camelCase(msg.name),
         });
@@ -226,15 +227,13 @@ const Context = struct {
                 },
                 .object => {
                     if (arg.interface) |iface_name| {
-                        try cx.print("arg_{s}: {s}{s},", .{
+                        try cx.print("arg_{s}: {s},", .{
                             try cx.snakeCase(arg.name),
-                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
                             cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
-                        try cx.print("arg_{s}: {s}wayland.client.Object,", .{
+                        try cx.print("arg_{s}: wayland.client.Object,", .{
                             try cx.snakeCase(arg.name),
-                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
                         });
                     }
                 },
@@ -248,14 +247,14 @@ const Context = struct {
                 .new_id => {
                     if (arg.interface) |iface_name| {
                         try cx.print(
-                            \\const arg_{0s}_data = try self.object.conn.object_map.create();
+                            \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = 1,
                             \\    .handler = {1s}.defaultHandler,
+                            \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = {1s}{{
                             \\    .object = wayland.client.Object{{
-                            \\        .conn = self.object.conn,
                             \\        .id = arg_{0s}_data.id,
                             \\    }},
                             \\}};
@@ -265,13 +264,13 @@ const Context = struct {
                         });
                     } else {
                         try cx.print(
-                            \\const arg_{0s}_data = try self.object.conn.object_map.create();
+                            \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = arg_{0s}_version,
                             \\    .handler = defaultHandler,
+                            \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = wayland.client.Object{{
-                            \\    .conn = self.object.conn,
                             \\    .id = arg_{0s}_data.id,
                             \\}};
                         , .{
@@ -299,7 +298,7 @@ const Context = struct {
         }
         try cx.print(
             \\}};
-            \\try request.marshal(self.object.id, &self.object.conn.wire_conn.out);
+            \\try request.marshal(self.object.id, &conn.wire_conn.out);
         , .{});
         if (return_expr.len != 0) {
             try cx.print(
@@ -650,14 +649,11 @@ const Context = struct {
     }
 
     fn emitUnmarshal(cx: *Context, msg: wayland.Message, _: MessageKind) !void {
-        var conn_arg_name: []const u8 = "_";
         var msg_arg_name: []const u8 = "_";
         var fd_arg_name: []const u8 = "_";
         if (msg.args.len != 0)
             msg_arg_name = "msg";
         for (msg.args) |arg| {
-            if (arg.kind == .new_id or arg.kind == .object)
-                conn_arg_name = "conn";
             if (arg.kind == .fd)
                 fd_arg_name = "fds";
         }
@@ -668,7 +664,7 @@ const Context = struct {
             \\    {s}: *wayland.Buffer,
             \\) @This() {{
         , .{
-            conn_arg_name,
+            "_",
             msg_arg_name,
             fd_arg_name,
         });
@@ -690,20 +686,19 @@ const Context = struct {
                 .new_id, .object => {
                     if (arg.kind == .new_id and arg.interface == null) {
                         try cx.print(
-                            \\_ = conn;
                             \\break :blk undefined;
                         , .{});
                     } else if (arg.allow_null) {
                         try cx.print(
                             \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
                             \\i += 4;
-                            \\break :blk wayland.client.Object {{ .conn = conn, .id = arg_id }};
+                            \\break :blk wayland.client.Object {{ .id = arg_id }};
                         , .{});
                     } else {
                         try cx.print(
                             \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
                             \\i += 4;
-                            \\break :blk wayland.client.Object {{ .conn = conn, .id = arg_id }};
+                            \\break :blk wayland.client.Object {{ .id = arg_id }};
                         , .{});
                     }
                 },
