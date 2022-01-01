@@ -109,7 +109,8 @@ const Context = struct {
             .int => "i32",
             .uint => "u32",
             .fixed => "f64",
-            .string, .array => if (arg.allow_null) "?[]const u8" else "[]const u8",
+            .string => if (arg.allow_null) "?[:0]const u8" else "[:0]const u8",
+            .array => if (arg.allow_null) "?[]const u8" else "[]const u8",
             .fd => "std.os.fd_t",
             else => unreachable, // special
         };
@@ -137,12 +138,34 @@ const Context = struct {
             iface.name,
             iface.version,
         });
+        try cx.emitDefaultHandler(iface);
         try cx.emitMethods(iface, iface.requests, .request);
         try cx.emitEnums(iface.enums);
         try cx.emitMessages(iface, iface.requests, .request);
         try cx.emitMessages(iface, iface.events, .event);
         try cx.print(
             \\}};
+        , .{});
+    }
+
+    fn emitDefaultHandler(cx: *Context, iface: wayland.Interface) !void {
+        try cx.print(
+            \\pub fn defaultHandler(
+            \\    conn: *wayland.client.Connection,
+            \\    msg: wayland.Message,
+            \\    fds: *wayland.Buffer,
+            \\) void {{
+            \\    _ = conn;
+            \\    _ = msg;
+            \\    _ = fds;
+        , .{});
+        if (iface.events.len != 0) {
+            try cx.print(
+                \\std.debug.print("{{}}\n", .{{Event.unmarshal(conn, msg, fds)}});
+            , .{});
+        }
+        try cx.print(
+            \\}}
         , .{});
     }
 
@@ -215,7 +238,7 @@ const Context = struct {
                             \\const arg_{0s}_data = try {1s}.object.conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = 1,
-                            \\    .handler = null,
+                            \\    .handler = {2s}.defaultHandler,
                             \\}};
                             \\const arg_{0s} = {2s}{{
                             \\    .object = wayland.client.Object{{
@@ -233,7 +256,7 @@ const Context = struct {
                             \\const arg_{0s}_data = try {1s}.object.conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = arg_{0s}_version,
-                            \\    .handler = null,
+                            \\    .handler = defaultHandler,
                             \\}};
                             \\const arg_{0s} = wayland.client.Object{{
                             \\    .conn = {1s}.object.conn,
@@ -754,7 +777,16 @@ const Context = struct {
                         \\break :blk arg;
                     , .{});
                 },
-                .string, .array => {
+                .string => {
+                    try cx.print(
+                        \\const arg_len = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
+                        \\const arg_padded_len = (arg_len + 3) / 4 * 4;
+                        \\const arg = msg.data[i + 4.. i + 4 + arg_len - 1 :0];
+                        \\i += 4 + arg_padded_len;
+                        \\break :blk arg;
+                    , .{});
+                },
+                .array => {
                     try cx.print(
                         \\const arg_len = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
                         \\const arg_padded_len = (arg_len + 3) / 4 * 4;

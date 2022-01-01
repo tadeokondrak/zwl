@@ -21,7 +21,7 @@ pub const Connection = struct {
     // TODO: make this not public
     pub const ObjectData = struct {
         version: u32,
-        handler: ?fn (conn: *Connection, msg: Message, fds: *Buffer) void,
+        handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
     };
 
     wire_conn: WireConnection,
@@ -67,7 +67,7 @@ pub const Connection = struct {
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
-            .handler = displayHandler,
+            .handler = wl.Display.defaultHandler,
         };
 
         const conn = Connection{
@@ -92,11 +92,6 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
-    fn displayHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
-        const event = wl.Display.Event.unmarshal(conn, msg, fds);
-        std.debug.print("{}\n", .{event});
-    }
-
     pub fn display(conn: *Connection) wl.Display {
         return wl.Display{
             .object = .{
@@ -110,9 +105,7 @@ pub const Connection = struct {
         var fds = Buffer.init();
         while (conn.wire_conn.in.getMessage()) |msg| {
             const object_data = conn.object_map.get(msg.id);
-            // TODO: handler should be unconditionally required
-            if (object_data.?.handler) |handler|
-                handler(conn, msg, &fds);
+            object_data.?.handler(conn, msg, &fds);
         }
     }
 };
@@ -131,11 +124,6 @@ test "Connection: raw request globals" {
     try conn.read();
 }
 
-fn registryHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
-    const event = wl.Registry.Event.unmarshal(conn, msg, fds);
-    std.debug.print("{}\n", .{event});
-}
-
 test "Connection: request globals with struct" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
@@ -143,7 +131,7 @@ test "Connection: request globals with struct" {
     const registry_data = try conn.object_map.create();
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
-        .handler = registryHandler,
+        .handler = wl.Registry.defaultHandler,
     };
     const registry = wl.Registry{
         .object = .{
