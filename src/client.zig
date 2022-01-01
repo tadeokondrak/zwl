@@ -90,16 +90,17 @@ pub const Connection = struct {
         try conn.wire_conn.flush();
     }
 
-    pub fn display(_: *Connection) wl.Display {
-        return wl.Display{ .id = 1 };
-    }
-
     pub fn dispatch(conn: *Connection) !void {
         var fds = Buffer.init();
         while (conn.wire_conn.in.getMessage()) |msg| {
             const object_data = conn.object_map.get(msg.id);
             object_data.?.handler(conn, msg, &fds);
         }
+    }
+
+    pub fn getRegistry(conn: *Connection) !wl.Registry {
+        const display = wl.Display{ .id = 1 };
+        return display.getRegistry(conn);
     }
 };
 
@@ -120,7 +121,6 @@ test "Connection: raw request globals" {
 test "Connection: request globals with struct" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
-    const display = conn.display();
     const registry_data = try conn.object_map.create();
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
@@ -129,7 +129,8 @@ test "Connection: request globals with struct" {
     };
     const registry = wl.Registry{ .id = registry_data.id };
     const req = wl.Display.Request.GetRegistry{ .registry = registry };
-    try req.marshal(display.id, &conn.wire_conn.out);
+    const display_id = 1;
+    try req.marshal(display_id, &conn.wire_conn.out);
     try conn.flush();
     try conn.read();
     try conn.dispatch();
@@ -138,8 +139,7 @@ test "Connection: request globals with struct" {
 test "Connection: request globals with method" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
-    const display = conn.display();
-    _ = try display.getRegistry(&conn);
+    _ = try conn.getRegistry();
     try conn.flush();
     try conn.read();
     try conn.dispatch();
