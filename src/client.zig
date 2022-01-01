@@ -139,7 +139,7 @@ test "Connection: request globals with struct" {
             .id = registry_data.id,
         },
     };
-    const req = wl.Display.Request.GetRegistryRequest{ .registry = registry };
+    const req = wl.Display.Request.GetRegistry{ .registry = registry };
     try req.marshal(display.object.id, &conn.wire_conn.out);
     try conn.flush();
     try conn.read();
@@ -150,7 +150,7 @@ test "Connection: request globals with method" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
     const display = conn.display();
-    _ = try display.reqGetRegistry();
+    _ = try display.getRegistry();
     try conn.flush();
     try conn.read();
     try conn.dispatch();
