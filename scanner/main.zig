@@ -175,7 +175,10 @@ const Context = struct {
         , .{});
         if (iface.events.len != 0) {
             try cx.print(
-                \\std.debug.print("{{}}\n", .{{Event.unmarshal(conn, msg, fds)}});
+                \\const event = Event.unmarshal(conn, msg, fds);
+                \\const writer = std.io.getStdErr().writer();
+                \\@TypeOf(event).format(event, "", .{{}}, writer) catch {{}};
+                \\writer.print("\n", .{{}}) catch {{}};
             , .{});
         }
         try cx.print(
@@ -212,6 +215,11 @@ const Context = struct {
                 .new_id => {
                     if (arg.interface) |iface_name| {
                         return_type = try cx.pascalCase(cx.trimPrefix(iface_name));
+                        return_expr = try std.fmt.allocPrint(
+                            cx.allocator,
+                            "arg_{s}",
+                            .{try cx.snakeCase(arg.name)},
+                        );
                     } else {
                         try cx.print(
                             \\comptime T: anytype,
@@ -220,9 +228,13 @@ const Context = struct {
                             try cx.snakeCase(arg.name),
                         });
                         return_type = "T";
+                        return_expr = try std.fmt.allocPrint(
+                            cx.allocator,
+                            "T{{ .id = arg_{s} }}",
+                            .{try cx.snakeCase(arg.name)},
+                        );
                     }
                     extra_errors = ",OutOfMemory";
-                    return_expr = try std.fmt.allocPrint(cx.allocator, "arg_{s}", .{try cx.snakeCase(arg.name)});
                 },
                 .object => {
                     if (arg.interface) |iface_name| {
@@ -264,7 +276,7 @@ const Context = struct {
                             \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = arg_{0s}_version,
-                            \\    .handler = defaultHandler,
+                            \\    .handler = T.defaultHandler,
                             \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = arg_{0s}_data.id;
@@ -284,10 +296,22 @@ const Context = struct {
             try cx.pascalCase(msg.name),
         });
         for (msg.args) |arg| {
+            switch (arg.kind) {
+                .new_id => {
+                    if (arg.interface) |_| {} else {
+                        try cx.print(
+                            \\.interface = T.interface,
+                            \\.version = arg_{0s}_version,
+                        , .{
+                            try cx.snakeCase(arg.name),
+                        });
+                    }
+                },
+                else => {},
+            }
             try cx.print(
-                \\.{s} = arg_{s},
+                \\.{0s} = arg_{0s},
             , .{
-                try cx.snakeCase(arg.name),
                 try cx.snakeCase(arg.name),
             });
         }
@@ -376,7 +400,7 @@ const Context = struct {
         , .{});
         for (msgs) |msg| {
             try cx.print(
-                \\.{0s} => |{0s}| {0s}.format(fmt, options, writer),
+                \\.{0s} => |{0s}| @TypeOf({0s}).format({0s}, fmt, options, writer),
             , .{
                 try cx.snakeCase(msg.name),
             });
@@ -606,7 +630,7 @@ const Context = struct {
                         try cx.print(
                             \\buf.putString(self.interface) catch unreachable;
                             \\buf.putUInt(self.version) catch unreachable;
-                            \\buf.putUInt(self.{s}.id) catch unreachable;
+                            \\buf.putUInt(self.{s}) catch unreachable;
                         , .{
                             try cx.snakeCase(arg.name),
                         });
@@ -787,8 +811,8 @@ const Context = struct {
                 },
                 .int, .uint => {
                     try cx.print(
-                        \\try writer.print("{{}}", .{{self.{s}}});
-                    , .{arg.name});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .fixed => {
                     try cx.print(
@@ -797,8 +821,8 @@ const Context = struct {
                 },
                 .string => {
                     try cx.print(
-                        \\try writer.print("\"{{s}}\"", .{{self.{s}}});
-                    , .{arg.name});
+                        \\try writer.print("{0s} {1s}: \"{{s}}\"", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .object => {
                     try cx.print(

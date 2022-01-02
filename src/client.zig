@@ -139,7 +139,9 @@ test "Connection: request globals with struct" {
 test "Connection: request globals with method" {
     var conn = try Connection.init(std.testing.allocator, null);
     defer conn.deinit();
-    _ = try conn.getRegistry();
+    const registry = try conn.getRegistry();
+    const shm = try registry.bind(&conn, 1, wl.Shm, 1);
+    _ = shm;
     try conn.flush();
     try conn.read();
     try conn.dispatch();
