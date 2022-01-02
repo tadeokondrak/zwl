@@ -127,8 +127,7 @@ const Context = struct {
     }
 
     fn emitInterface(cx: *Context, iface: wayland.Interface) !void {
-        const trimmed = cx.trimPrefix(iface.name);
-        const type_name = try cx.pascalCase(trimmed);
+        const type_name = try cx.pascalCase(cx.trimPrefix(iface.name));
         try cx.print(
             \\pub const {s} = struct {{
             \\    id: u32,
@@ -158,8 +157,8 @@ const Context = struct {
         try cx.print(
             \\}};
         , .{});
-        try cx.emitMessages(iface, iface.requests, .request);
-        try cx.emitMessages(iface, iface.events, .event);
+        try cx.emitMessageUnion(iface, iface.requests, .request);
+        try cx.emitMessageUnion(iface, iface.events, .event);
         try cx.emitEnums(iface);
     }
 
@@ -306,10 +305,6 @@ const Context = struct {
         , .{});
     }
 
-    fn emitMessages(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
-        try cx.emitMessageUnion(iface, msgs, kind);
-    }
-
     fn emitMessageUnion(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
         if (msgs.len == 0)
             return;
@@ -329,7 +324,7 @@ const Context = struct {
             });
         }
         for (msgs) |msg|
-            try cx.emitMessageStruct(msg, kind);
+            try cx.emitMessageStruct(iface, msg, kind);
         try cx.print(
             \\pub fn marshal(
             \\    self: @This(),
@@ -369,11 +364,33 @@ const Context = struct {
         try cx.print(
             \\    }};
             \\}}
+        , .{});
+        try cx.print(
+            \\pub fn format(
+            \\    self: @This(),
+            \\    comptime fmt: []const u8,
+            \\    options: std.fmt.FormatOptions,
+            \\    writer: anytype,
+            \\) !void {{
+            \\    return switch (self) {{
+        , .{});
+        for (msgs) |msg| {
+            try cx.print(
+                \\.{0s} => |{0s}| {0s}.format(fmt, options, writer),
+            , .{
+                try cx.snakeCase(msg.name),
+            });
+        }
+        try cx.print(
+            \\}};
+            \\}}
+        , .{});
+        try cx.print(
             \\}};
         , .{});
     }
 
-    fn emitMessageStruct(cx: *Context, msg: wayland.Message, kind: MessageKind) !void {
+    fn emitMessageStruct(cx: *Context, iface: wayland.Interface, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub const {s} = struct {{
         , .{try cx.pascalCase(msg.name)});
@@ -416,6 +433,7 @@ const Context = struct {
         }
         try cx.emitMarshal(msg, kind);
         try cx.emitUnmarshal(msg, kind);
+        try cx.emitFormat(iface, msg, kind);
         try cx.print(
             \\}};
         , .{});
@@ -737,6 +755,75 @@ const Context = struct {
         }
         try cx.print(
             \\}};
+            \\}}
+        , .{});
+    }
+
+    fn emitFormat(cx: *Context, iface: wayland.Interface, msg: wayland.Message, kind: MessageKind) !void {
+        const arrow = switch (kind) {
+            .request => "->",
+            .event => "<-",
+        };
+        try cx.print(
+            \\pub fn format(
+            \\    self: @This(),
+            \\    comptime _: []const u8,
+            \\    _: std.fmt.FormatOptions,
+            \\    writer: anytype,
+            \\) !void {{
+            \\    _ = self;
+            \\    try writer.print("{s} {s}.{s}(", .{{}});
+        , .{
+            arrow,
+            iface.name,
+            msg.name,
+        });
+        for (msg.args) |arg, i| {
+            switch (arg.kind) {
+                .new_id => {
+                    try cx.print(
+                        \\try writer.print("new_id", .{{}});
+                    , .{});
+                },
+                .int, .uint => {
+                    try cx.print(
+                        \\try writer.print("{{}}", .{{self.{s}}});
+                    , .{arg.name});
+                },
+                .fixed => {
+                    try cx.print(
+                        \\try writer.print("fixed", .{{}});
+                    , .{});
+                },
+                .string => {
+                    try cx.print(
+                        \\try writer.print("\"{{s}}\"", .{{self.{s}}});
+                    , .{arg.name});
+                },
+                .object => {
+                    try cx.print(
+                        \\try writer.print("object", .{{}});
+                    , .{});
+                },
+                .array => {
+                    try cx.print(
+                        \\try writer.print("array", .{{}});
+                    , .{});
+                },
+                .fd => {
+                    try cx.print(
+                        \\try writer.print("fd", .{{}});
+                    , .{});
+                },
+            }
+            if (i != msg.args.len - 1) {
+                try cx.print(
+                    \\try writer.print(", ", .{{}});
+                , .{});
+            }
+        }
+        try cx.print(
+            \\    try writer.print(")", .{{}});
             \\}}
         , .{});
     }
