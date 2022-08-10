@@ -20,7 +20,7 @@ pub const Object = struct {
 pub const Connection = struct {
     const ObjectData = struct {
         version: u32,
-        handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
+        handler: *const fn (conn: *Connection, msg: Message, fds: *Buffer) void,
     };
 
     wire_conn: WireConnection,
@@ -66,7 +66,7 @@ pub const Connection = struct {
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
-            .handler = displayHandler,
+            .handler = &displayHandler,
         };
 
         const conn = Connection{
@@ -93,7 +93,9 @@ pub const Connection = struct {
 
     fn displayHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
         const event = wl.Display.Event.unmarshal(conn, msg, fds);
-        std.debug.print("{}\n", .{event});
+        const writer = std.io.getStdErr().writer();
+        event._format("", .{}, writer) catch {};
+        writer.writeByte('\n') catch {};
     }
 
     pub fn display(conn: *Connection) wl.Display {
@@ -128,9 +130,49 @@ test "Connection: raw request globals" {
     try conn.read();
 }
 
+fn outputHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
+    const event = wl.Output.Event.unmarshal(conn, msg, fds);
+    const writer = std.io.getStdErr().writer();
+    event._format("", .{}, writer) catch {};
+    writer.writeByte('\n') catch {};
+}
+
 fn registryHandler(conn: *Connection, msg: Message, fds: *Buffer) void {
+    const registry = wl.Registry{
+        .object = .{
+            .conn = conn,
+            .id = msg.id,
+        },
+    };
     const event = wl.Registry.Event.unmarshal(conn, msg, fds);
-    std.debug.print("{}\n", .{event});
+    const writer = std.io.getStdErr().writer();
+    event._format("", .{}, writer) catch {};
+    writer.writeByte('\n') catch {};
+    switch (event) {
+        .global => |global| {
+            if (std.mem.eql(u8, global.interface, wl.Output.interface)) {
+                const output_data = conn.object_map.create(null) catch @panic("out of memory");
+                output_data.object.* = Connection.ObjectData{
+                    .version = 1,
+                    .handler = &outputHandler,
+                };
+                const output = wl.Output{
+                    .object = .{
+                        .conn = conn,
+                        .id = output_data.id,
+                    },
+                };
+                const req = wl.Registry.Request.BindRequest{
+                    .name = global.name,
+                    .interface = global.interface,
+                    .version = wl.Output.version,
+                    .id = output.object,
+                };
+                req.marshal(registry.object.id, &conn.wire_conn.out) catch @panic("out of memory");
+            }
+        },
+        else => {},
+    }
 }
 
 test "Connection: request globals with struct" {
@@ -140,7 +182,7 @@ test "Connection: request globals with struct" {
     const registry_data = try conn.object_map.create(null);
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
-        .handler = registryHandler,
+        .handler = &registryHandler,
     };
     const registry = wl.Registry{
         .object = .{
@@ -150,6 +192,11 @@ test "Connection: request globals with struct" {
     };
     const req = wl.Display.Request.GetRegistryRequest{ .registry = registry };
     try req.marshal(display.object.id, &conn.wire_conn.out);
+
+    try conn.flush();
+    try conn.read();
+    try conn.dispatch();
+
     try conn.flush();
     try conn.read();
     try conn.dispatch();
