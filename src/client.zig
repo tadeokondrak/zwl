@@ -16,7 +16,7 @@ pub const Connection = struct {
     // TODO: make this not public
     pub const ObjectData = struct {
         version: u32,
-        handler: fn (conn: *Connection, msg: Message, fds: *Buffer) void,
+        handler: *const fn (conn: *Connection, msg: Message, fds: *Buffer) void,
         user_data: usize,
     };
 
@@ -64,7 +64,7 @@ pub const Connection = struct {
         assert(display_data.id == 1);
         display_data.object.* = ObjectData{
             .version = 1,
-            .handler = wl.Display.defaultHandler,
+            .handler = &wl.Display.defaultHandler,
             .user_data = 0,
         };
 
@@ -124,7 +124,7 @@ test "Connection: request globals with struct" {
     const registry_data = try conn.object_map.create();
     registry_data.object.* = Connection.ObjectData{
         .version = 1,
-        .handler = wl.Registry.defaultHandler,
+        .handler = &wl.Registry.defaultHandler,
         .user_data = 0,
     };
     const registry = wl.Registry{ .id = registry_data.id };

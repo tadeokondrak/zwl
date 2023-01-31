@@ -68,7 +68,7 @@ pub fn flush(conn: *WireConnection) !void {
         .controllen = 0,
         .flags = 0,
     };
-    switch (try std.os.sendmsg(conn.socket.handle, msghdr, std.os.MSG.DONTWAIT | std.os.MSG.CMSG_CLOEXEC)) {
+    switch (try std.os.sendmsg(conn.socket.handle, &msghdr, std.os.MSG.DONTWAIT | std.os.MSG.CMSG_CLOEXEC)) {
         0 => return error.Disconnected,
         else => |n| {
             conn.out.bytes.tail +%= @intCast(u12, n);
@@ -83,7 +83,7 @@ test "WireConnection" {
 // TODO: this should be upstream (with windows support and errors)
 fn recvmsg(sockfd: std.os.socket_t, msg: *std.os.msghdr, flags: u32) !usize {
     while (true) {
-        const rc = std.os.system.recvmsg(sockfd, @ptrCast(*std.x.os.Socket.Message, msg), @intCast(c_int, flags));
+        const rc = std.os.system.recvmsg(sockfd, msg, flags);
         return switch (std.os.errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .AGAIN => continue,

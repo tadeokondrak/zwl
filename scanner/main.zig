@@ -81,7 +81,7 @@ const Context = struct {
                 try new.append(c);
             }
         }
-        return new.toOwnedSlice();
+        return try new.toOwnedSlice();
     }
 
     fn identifier(cx: *Context, name: []const u8) ![]const u8 {
@@ -163,27 +163,32 @@ const Context = struct {
     }
 
     fn emitDefaultHandler(cx: *Context, iface: wayland.Interface) !void {
-        try cx.print(
-            \\pub fn defaultHandler(
-            \\    conn: *wayland.client.Connection,
-            \\    msg: wayland.Message,
-            \\    fds: *wayland.Buffer,
-            \\) void {{
-            \\    _ = conn;
-            \\    _ = msg;
-            \\    _ = fds;
-        , .{});
-        if (iface.events.len != 0) {
+        if (iface.events.len == 0) {
+            try cx.print(
+                \\pub fn defaultHandler(
+                \\    _: *wayland.client.Connection,
+                \\    _: wayland.Message,
+                \\    _: *wayland.Buffer,
+                \\) void {{}}
+            , .{});
+        } else {
+            try cx.print(
+                \\pub fn defaultHandler(
+                \\    conn: *wayland.client.Connection,
+                \\    msg: wayland.Message,
+                \\    fds: *wayland.Buffer,
+                \\) void {{
+            , .{});
             try cx.print(
                 \\const event = Event.unmarshal(conn, msg, fds);
                 \\const writer = std.io.getStdErr().writer();
                 \\@TypeOf(event).format(event, "", .{{}}, writer) catch {{}};
                 \\writer.print("\n", .{{}}) catch {{}};
             , .{});
+            try cx.print(
+                \\}}
+            , .{});
         }
-        try cx.print(
-            \\}}
-        , .{});
     }
 
     fn emitMethods(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
@@ -240,7 +245,7 @@ const Context = struct {
                     if (arg.interface) |iface_name| {
                         try cx.print("arg_{s}: {s},", .{
                             try cx.snakeCase(arg.name),
-                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
                         try cx.print("arg_{s}: u32,", .{
@@ -261,7 +266,7 @@ const Context = struct {
                             \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = 1,
-                            \\    .handler = {1s}.defaultHandler,
+                            \\    .handler = &{1s}.defaultHandler,
                             \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = {1s}{{
@@ -276,7 +281,7 @@ const Context = struct {
                             \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = arg_{0s}_version,
-                            \\    .handler = T.defaultHandler,
+                            \\    .handler = &T.defaultHandler,
                             \\    .user_data = 0,
                             \\}};
                             \\const arg_{0s} = arg_{0s}_data.id;
@@ -359,7 +364,7 @@ const Context = struct {
         , .{});
         for (msgs) |msg| {
             try cx.print(
-                \\.{0s} => |{0s}| {0s}.marshal(id, buf),
+                \\.{0s} => |msg| msg.marshal(id, buf),
             , .{
                 try cx.snakeCase(msg.name),
             });
@@ -400,7 +405,7 @@ const Context = struct {
         , .{});
         for (msgs) |msg| {
             try cx.print(
-                \\.{0s} => |{0s}| @TypeOf({0s}).format({0s}, fmt, options, writer),
+                \\.{0s} => |msg| @TypeOf(msg).format(msg, fmt, options, writer),
             , .{
                 try cx.snakeCase(msg.name),
             });
@@ -432,7 +437,7 @@ const Context = struct {
                     if (arg.interface) |iface_name| {
                         try cx.print("{s}: wl.{s},", .{
                             try cx.snakeCase(arg.name),
-                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
                         try cx.print("interface: []const u8, version: u32, {s}: u32,", .{
@@ -445,7 +450,7 @@ const Context = struct {
                         try cx.print("{s}: {s}wl.{s},", .{
                             try cx.snakeCase(arg.name),
                             if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
-                            cx.pascalCase(cx.trimPrefix(iface_name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
                         try cx.print("{s}: u32,", .{
@@ -570,14 +575,14 @@ const Context = struct {
     }
 
     fn emitMarshal(cx: *Context, msg: wayland.Message, _: MessageKind) !void {
+        const self_name = if (msg.args.len == 0) "_" else "self";
         try cx.print(
             \\pub fn marshal(
-            \\    self: @This(),
+            \\    {s}: @This(),
             \\    id: u32,
             \\    buf: *wayland.Buffer,
             \\) error{{BufferFull}}!void {{
-            \\    _ = self;
-        , .{});
+        , .{self_name});
         var size_bytes: u32 = 8;
         var size_fds: u32 = 0;
         var extra = std.ArrayList(u8).init(cx.allocator);
@@ -585,7 +590,7 @@ const Context = struct {
             .new_id => {
                 if (arg.interface == null) {
                     size_bytes += 12;
-                    try extra.writer().print("+ ((self.interface.len + 3) / 4 * 4)", .{});
+                    try extra.writer().print(" + ((self.interface.len + 3) / 4 * 4)", .{});
                 } else {
                     size_bytes += 4;
                 }
@@ -596,11 +601,11 @@ const Context = struct {
             .string, .array => {
                 size_bytes += 4;
                 if (arg.allow_null) {
-                    try extra.writer().print("+ (if (self.{s}) |_arg| ((_arg.len + 3) / 4 * 4) else 0)", .{
+                    try extra.writer().print(" + (if (self.{s}) |_arg| ((_arg.len + 3) / 4 * 4) else 0)", .{
                         try cx.snakeCase(arg.name),
                     });
                 } else {
-                    try extra.writer().print("+ ((self.{s}.len + 3) / 4 * 4)", .{
+                    try extra.writer().print(" + ((self.{s}.len + 3) / 4 * 4)", .{
                         try cx.snakeCase(arg.name),
                     });
                 }
@@ -788,16 +793,17 @@ const Context = struct {
             .request => "->",
             .event => "<-",
         };
+        const self_name = if (msg.args.len == 0) "_" else "self";
         try cx.print(
             \\pub fn format(
-            \\    self: @This(),
+            \\    {s}: @This(),
             \\    comptime _: []const u8,
             \\    _: std.fmt.FormatOptions,
             \\    writer: anytype,
             \\) !void {{
-            \\    _ = self;
             \\    try writer.print("{s} {s}.{s}(", .{{}});
         , .{
+            self_name,
             arrow,
             iface.name,
             msg.name,
@@ -806,8 +812,8 @@ const Context = struct {
             switch (arg.kind) {
                 .new_id => {
                     try cx.print(
-                        \\try writer.print("new_id", .{{}});
-                    , .{});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .int, .uint => {
                     try cx.print(
@@ -816,8 +822,8 @@ const Context = struct {
                 },
                 .fixed => {
                     try cx.print(
-                        \\try writer.print("fixed", .{{}});
-                    , .{});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .string => {
                     try cx.print(
@@ -826,18 +832,18 @@ const Context = struct {
                 },
                 .object => {
                     try cx.print(
-                        \\try writer.print("object", .{{}});
-                    , .{});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .array => {
                     try cx.print(
-                        \\try writer.print("array", .{{}});
-                    , .{});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
                 .fd => {
                     try cx.print(
-                        \\try writer.print("fd", .{{}});
-                    , .{});
+                        \\try writer.print("{0s} {1s}: {{}}", .{{self.{1s}}});
+                    , .{ @tagName(arg.kind), arg.name });
                 },
             }
             if (i != msg.args.len - 1) {

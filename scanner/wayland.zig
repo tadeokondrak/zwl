@@ -199,7 +199,7 @@ fn parseProtocol(allocator: mem.Allocator, parser: *xml.Parser) !Protocol {
                     .name = name orelse return error.ProtocolNameMissing,
                     .copyright = copyright,
                     .description = description,
-                    .interfaces = interfaces.toOwnedSlice(),
+                    .interfaces = try interfaces.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
@@ -219,7 +219,7 @@ fn parseCopyright(allocator: mem.Allocator, parser: *xml.Parser) !Copyright {
         .close_tag => |tag| {
             if (mem.eql(u8, tag, "copyright")) {
                 return Copyright{
-                    .content = content.toOwnedSlice(),
+                    .content = try content.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
@@ -278,9 +278,9 @@ fn parseInterface(allocator: mem.Allocator, parser: *xml.Parser) !Interface {
                     .name = name orelse return error.InterfaceNameMissing,
                     .version = version,
                     .description = description,
-                    .requests = requests.toOwnedSlice(),
-                    .events = events.toOwnedSlice(),
-                    .enums = enums.toOwnedSlice(),
+                    .requests = try requests.toOwnedSlice(),
+                    .events = try events.toOwnedSlice(),
+                    .enums = try enums.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
@@ -335,7 +335,7 @@ fn parseMessage(allocator: mem.Allocator, parser: *xml.Parser) !Message {
                     .description = description,
                     .is_destructor = is_destructor,
                     .since = since,
-                    .args = args.toOwnedSlice(),
+                    .args = try args.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
@@ -390,7 +390,7 @@ fn parseEnum(allocator: mem.Allocator, parser: *xml.Parser) !Enum {
                     .since = since,
                     .bitfield = bitfield,
                     .description = description,
-                    .entries = entries.toOwnedSlice(),
+                    .entries = try entries.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
@@ -547,7 +547,7 @@ fn parseDescription(allocator: mem.Allocator, parser: *xml.Parser) !Description 
             if (mem.eql(u8, tag, "description")) {
                 return Description{
                     .summary = summary orelse return error.DescriptionSummaryMissing,
-                    .content = content.toOwnedSlice(),
+                    .content = try content.toOwnedSlice(),
                     .allocator = allocator,
                 };
             }
