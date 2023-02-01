@@ -8,19 +8,35 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const stdin = std.io.getStdIn().reader();
-    const input = try stdin.readAllAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(input);
-
-    var protocol = try wayland.parseFile(allocator, input);
-    defer protocol.deinit();
-
     var cx = Context{
-        .prefix = "wl_",
+        .prefix = "",
         .out = std.ArrayList(u8).init(allocator),
         .allocator = allocator,
     };
-    try cx.emitProtocol(protocol);
+
+    if (std.os.argv.len > 1) {
+        var protocols = try std.ArrayList(wayland.Protocol).initCapacity(allocator, std.os.argv.len - 1);
+        defer {
+            for (protocols.items) |*protocol| protocol.deinit();
+            protocols.deinit();
+        }
+        for (std.os.argv[1..]) |arg| {
+            const f = try std.fs.cwd().openFileZ(arg, .{});
+            defer f.close();
+            const input = try f.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+            defer allocator.free(input);
+            var protocol = try wayland.parseFile(allocator, input);
+            protocols.appendAssumeCapacity(protocol);
+        }
+        try cx.emitProtocols(protocols.items);
+    } else {
+        const stdin = std.io.getStdIn().reader();
+        const input = try stdin.readAllAlloc(allocator, std.math.maxInt(usize));
+        defer allocator.free(input);
+        var protocol = try wayland.parseFile(allocator, input);
+        defer protocol.deinit();
+        try cx.emitProtocols(&[_]wayland.Protocol{protocol});
+    }
     try std.io.getStdOut().writer().print("{s}", .{cx.out.items});
 }
 
@@ -85,8 +101,6 @@ const Context = struct {
     }
 
     fn identifier(cx: *Context, name: []const u8) ![]const u8 {
-        if (std.mem.eql(u8, name, "class_"))
-            return "class";
         if (!isValidZigIdentifier(name))
             return try std.fmt.allocPrint(cx.allocator, "@\"{s}\"", .{name});
         return name;
@@ -116,14 +130,15 @@ const Context = struct {
         };
     }
 
-    fn emitProtocol(cx: *Context, proto: wayland.Protocol) !void {
+    fn emitProtocols(cx: *Context, protos: []wayland.Protocol) !void {
         try cx.print(
             \\const wl = @This();
             \\const std = @import("std");
             \\const wayland = @import("wayland.zig");
         , .{});
-        for (proto.interfaces) |iface|
-            try cx.emitInterface(iface);
+        for (protos) |proto|
+            for (proto.interfaces) |iface|
+                try cx.emitInterface(iface);
     }
 
     fn emitInterface(cx: *Context, iface: wayland.Interface) !void {
@@ -133,26 +148,13 @@ const Context = struct {
             \\    id: u32,
             \\    pub const interface = "{s}";
             \\    pub const version = {};
+            \\    pub const Request = {0s}Request;
+            \\    pub const Event = {0s}Event;
         , .{
             type_name,
             iface.name,
             iface.version,
         });
-        if (iface.requests.len != 0) {
-            try cx.print(
-                \\    pub const Request = {0s}Request;
-            , .{
-                type_name,
-            });
-        }
-        if (iface.events.len != 0) {
-            try cx.print(
-                \\    pub const Event = {0s}Event;
-            , .{
-                type_name,
-            });
-        }
-        try cx.emitDefaultHandler(iface);
         try cx.emitMethods(iface, iface.requests, .request);
         try cx.print(
             \\}};
@@ -162,41 +164,12 @@ const Context = struct {
         try cx.emitEnums(iface);
     }
 
-    fn emitDefaultHandler(cx: *Context, iface: wayland.Interface) !void {
-        if (iface.events.len == 0) {
-            try cx.print(
-                \\pub fn defaultHandler(
-                \\    _: *wayland.client.Connection,
-                \\    _: wayland.Message,
-                \\    _: *wayland.Buffer,
-                \\) void {{}}
-            , .{});
-        } else {
-            try cx.print(
-                \\pub fn defaultHandler(
-                \\    conn: *wayland.client.Connection,
-                \\    msg: wayland.Message,
-                \\    fds: *wayland.Buffer,
-                \\) void {{
-            , .{});
-            try cx.print(
-                \\const event = Event.unmarshal(conn, msg, fds);
-                \\const writer = std.io.getStdErr().writer();
-                \\@TypeOf(event).format(event, "", .{{}}, writer) catch {{}};
-                \\writer.print("\n", .{{}}) catch {{}};
-            , .{});
-            try cx.print(
-                \\}}
-            , .{});
-        }
-    }
-
     fn emitMethods(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
         for (msgs) |msg|
             try cx.emitMethod(iface, msg, kind);
     }
 
-    fn emitMethod(cx: *Context, _: wayland.Interface, msg: wayland.Message, kind: MessageKind) !void {
+    fn emitMethod(cx: *Context, iface: wayland.Interface, msg: wayland.Message, kind: MessageKind) !void {
         try cx.print(
             \\pub fn {s}(
             \\    self: @This(),
@@ -225,10 +198,22 @@ const Context = struct {
                             "arg_{s}",
                             .{try cx.snakeCase(arg.name)},
                         );
+                        try cx.print(
+                            \\comptime HandlerData: type,
+                            \\comptime handler: fn(conn: *wayland.client.Connection, {s}: {s}, event: {s}Event, data: HandlerData) void,
+                            \\handler_data: HandlerData,
+                        , .{
+                            try cx.snakeCase(cx.trimPrefix(iface_name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
+                            try cx.pascalCase(cx.trimPrefix(iface_name)),
+                        });
                     } else {
                         try cx.print(
                             \\comptime T: anytype,
                             \\arg_{s}_version: u32,
+                            \\comptime HandlerData: type,
+                            \\comptime handler: fn(conn: *wayland.client.Connection, iface: T, event: T.Event, data: HandlerData) void,
+                            \\handler_data: HandlerData,
                         , .{
                             try cx.snakeCase(arg.name),
                         });
@@ -236,7 +221,9 @@ const Context = struct {
                         return_expr = try std.fmt.allocPrint(
                             cx.allocator,
                             "T{{ .id = arg_{s} }}",
-                            .{try cx.snakeCase(arg.name)},
+                            .{
+                                try cx.snakeCase(arg.name),
+                            },
                         );
                     }
                     extra_errors = ",OutOfMemory";
@@ -263,11 +250,27 @@ const Context = struct {
                 .new_id => {
                     if (arg.interface) |iface_name| {
                         try cx.print(
+                            \\const handlerWrapperStruct = struct {{
+                            \\    pub fn handlerWrapper(
+                            \\        h_conn: *wayland.client.Connection,
+                            \\        h_msg: wayland.Message,
+                            \\        h_fds: *wayland.Buffer,
+                            \\    ) void {{
+                            \\        // kind of a hack to tell if we're dealing with an interface with no events
+                            \\        if (@typeInfo({1s}Event) != .Struct) {{
+                            \\          const h_event = {1s}Event.unmarshal(h_conn, h_msg, h_fds);
+                            \\          const h_object = {1s}{{ .id = h_msg.id }};
+                            \\          const h_object_data = h_conn.object_map.get(h_msg.id) orelse unreachable;
+                            \\          const h_handler_data = @intToPtr(HandlerData, h_object_data.user_data);
+                            \\          handler(h_conn, h_object, h_event, h_handler_data);
+                            \\        }}
+                            \\    }}
+                            \\}};
                             \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = 1,
-                            \\    .handler = &{1s}.defaultHandler,
-                            \\    .user_data = 0,
+                            \\    .handler = handlerWrapperStruct.handlerWrapper,
+                            \\    .user_data = @ptrToInt(handler_data),
                             \\}};
                             \\const arg_{0s} = {1s}{{
                             \\    .id = arg_{0s}_data.id,
@@ -278,11 +281,27 @@ const Context = struct {
                         });
                     } else {
                         try cx.print(
+                            \\const handlerWrapperStruct = struct {{
+                            \\    pub fn handlerWrapper(
+                            \\        h_conn: *wayland.client.Connection,
+                            \\        h_msg: wayland.Message,
+                            \\        h_fds: *wayland.Buffer,
+                            \\    ) void {{
+                            \\        // kind of a hack to tell if we're dealing with an interface with no events
+                            \\        if (@typeInfo(T.Event) != .Struct) {{
+                            \\            const h_event = T.Event.unmarshal(h_conn, h_msg, h_fds);
+                            \\            const h_object = T{{ .id = h_msg.id }};
+                            \\            const h_object_data = h_conn.object_map.get(h_msg.id) orelse unreachable;
+                            \\            const h_handler_data = @intToPtr(HandlerData, h_object_data.user_data);
+                            \\            handler(h_conn, h_object, h_event, h_handler_data);
+                            \\        }}
+                            \\    }}
+                            \\}};
                             \\const arg_{0s}_data = try conn.object_map.create();
                             \\arg_{0s}_data.object.* = wayland.client.Connection.ObjectData{{
                             \\    .version = arg_{0s}_version,
-                            \\    .handler = &T.defaultHandler,
-                            \\    .user_data = 0,
+                            \\    .handler = handlerWrapperStruct.handlerWrapper,
+                            \\    .user_data = @ptrToInt(handler_data),
                             \\}};
                             \\const arg_{0s} = arg_{0s}_data.id;
                         , .{
@@ -294,9 +313,10 @@ const Context = struct {
             }
         }
         try cx.print(
-            \\const {s} = {s}.{s}{{
+            \\const {s} = {s}{s}.{s}{{
         , .{
             kind.nameLower(),
+            try cx.pascalCase(cx.trimPrefix(iface.name)),
             kind.nameUpper(),
             try cx.pascalCase(msg.name),
         });
@@ -335,8 +355,16 @@ const Context = struct {
     }
 
     fn emitMessageUnion(cx: *Context, iface: wayland.Interface, msgs: []wayland.Message, kind: MessageKind) !void {
-        if (msgs.len == 0)
+        if (msgs.len == 0) {
+            try cx.print(
+                \\pub const {s}{s} = struct {{}};
+            , .{
+                try cx.pascalCase(cx.trimPrefix(iface.name)),
+                kind.nameUpper(),
+            });
             return;
+        }
+
         try cx.print(
             \\pub const {s}{s} = union(enum(u16)) {{
             \\    pub const Opcode = std.meta.Tag(@This());
@@ -447,9 +475,8 @@ const Context = struct {
                 },
                 .object => {
                     if (arg.interface) |iface_name| {
-                        try cx.print("{s}: {s}wl.{s},", .{
+                        try cx.print("{s}: wl.{s},", .{
                             try cx.snakeCase(arg.name),
-                            if (arg.allow_null) @as([]const u8, "?") else @as([]const u8, ""),
                             try cx.pascalCase(cx.trimPrefix(iface_name)),
                         });
                     } else {
@@ -469,20 +496,22 @@ const Context = struct {
     }
 
     fn emitEnums(cx: *Context, iface: wayland.Interface) !void {
-        try cx.print(
-            \\pub const {s}Enum = struct {{
-        , .{
-            try cx.pascalCase(cx.trimPrefix(iface.name)),
-        });
-        for (iface.enums) |@"enum"| {
-            if (@"enum".bitfield)
-                try cx.emitBitfield(@"enum")
-            else
-                try cx.emitEnum(@"enum");
+        if (iface.enums.len != 0) {
+            try cx.print(
+                \\pub const {s}Enum = struct {{
+            , .{
+                try cx.pascalCase(cx.trimPrefix(iface.name)),
+            });
+            for (iface.enums) |@"enum"| {
+                if (@"enum".bitfield)
+                    try cx.emitBitfield(@"enum")
+                else
+                    try cx.emitEnum(@"enum");
+            }
+            try cx.print(
+                \\}};
+            , .{});
         }
-        try cx.print(
-            \\}};
-        , .{});
     }
 
     fn emitBitfield(cx: *Context, bitfield: wayland.Enum) !void {
@@ -720,15 +749,18 @@ const Context = struct {
             });
             switch (arg.kind) {
                 .new_id, .object => {
-                    if (arg.kind == .new_id and arg.interface == null) {
-                        try cx.print(
-                            \\break :blk undefined;
-                        , .{});
-                    } else {
+                    // todo clean this up
+                    if (arg.interface) |interface| {
                         try cx.print(
                             \\const arg_id = @ptrCast(*align(1) const u32, msg.data[i .. i + 4]).*;
                             \\i += 4;
-                            \\break :blk arg_id;
+                            \\break :blk {s}{{ .id = arg_id }};
+                        , .{
+                            try cx.pascalCase(cx.trimPrefix(interface)),
+                        });
+                    } else {
+                        try cx.print(
+                            \\break :blk undefined;
                         , .{});
                     }
                 },

@@ -55,23 +55,41 @@ pub fn flush(conn: *WireConnection) !void {
         .{ .iov_base = read_slices[0].ptr, .iov_len = read_slices[0].len },
         .{ .iov_base = read_slices[1].ptr, .iov_len = read_slices[1].len },
     };
-    const vec_slice = if (read_slices[1].len == 0)
-        vecs[0..1]
-    else
-        vecs[0..2];
+    const vec_slice = if (read_slices[1].len == 0) vecs[0..1] else vecs[0..2];
+    const MAX_FDS = 28;
+    const SCM_RIGHTS = 1;
+    const Cmsg = extern struct {
+        cmsg_len: usize,
+        cmsg_level: i32,
+        cmsg_type: i32,
+        fds: [MAX_FDS]std.os.fd_t,
+    };
+    var cmsg = Cmsg{
+        .cmsg_len = @sizeOf(usize) + @sizeOf(i32) + @sizeOf(i32),
+        .cmsg_level = std.os.SOL.SOCKET,
+        .cmsg_type = SCM_RIGHTS,
+        .fds = undefined,
+    };
+    var fds_added: usize = 0;
+    while (conn.out.fds.readableLength() > 0 and fds_added < 28) {
+        cmsg.cmsg_len += @sizeOf(std.os.fd_t);
+        cmsg.fds[fds_added] = conn.out.fds.pop().?;
+        fds_added += 1;
+    }
     const msghdr = std.os.msghdr_const{
         .name = null,
         .namelen = 0,
         .iov = vec_slice.ptr,
         .iovlen = @intCast(i32, vec_slice.len),
-        .control = null,
-        .controllen = 0,
+        .control = &cmsg,
+        .controllen = if (fds_added > 0) @intCast(u32, cmsg.cmsg_len) else 0,
         .flags = 0,
     };
     switch (try std.os.sendmsg(conn.socket.handle, &msghdr, std.os.MSG.DONTWAIT | std.os.MSG.CMSG_CLOEXEC)) {
         0 => return error.Disconnected,
         else => |n| {
             conn.out.bytes.tail +%= @intCast(u12, n);
+            conn.out.fds.tail +%= @intCast(u9, fds_added);
         },
     }
 }

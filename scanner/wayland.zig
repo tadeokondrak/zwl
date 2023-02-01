@@ -152,9 +152,8 @@ pub fn parseFile(allocator: mem.Allocator, file: []const u8) !Protocol {
     var parser = xml.Parser.init(file);
     while (parser.next()) |ev| switch (ev) {
         .open_tag => |tag| {
-            if (mem.eql(u8, tag, "protocol")) {
+            if (mem.eql(u8, tag, "protocol"))
                 return try parseProtocol(allocator, &parser);
-            }
         },
         else => {},
     };
@@ -408,6 +407,7 @@ fn parseEntry(allocator: mem.Allocator, parser: *xml.Parser) !Entry {
     errdefer if (summary) |s| allocator.free(s);
     var since: u32 = 1;
     var description: ?Description = null;
+    errdefer if (description) |*d| d.deinit();
     while (parser.next()) |ev| switch (ev) {
         .attribute => |attr| {
             if (mem.eql(u8, attr.name, "name")) {
@@ -443,31 +443,37 @@ fn parseEntry(allocator: mem.Allocator, parser: *xml.Parser) !Entry {
                 };
             }
         },
+        .open_tag => |tag| {
+            if (mem.eql(u8, tag, "description")) {
+                if (description != null)
+                    return error.DuplicateDescription;
+                description = try parseDescription(allocator, parser);
+            }
+        },
         else => {},
     };
     return error.UnexpectedEof;
 }
 
 fn parseArgKind(string: []const u8) !ArgKind {
-    if (mem.eql(u8, string, "new_id")) {
-        return .new_id;
-    } else if (mem.eql(u8, string, "int")) {
-        return .int;
-    } else if (mem.eql(u8, string, "uint")) {
-        return .uint;
-    } else if (mem.eql(u8, string, "fixed")) {
-        return .fixed;
-    } else if (mem.eql(u8, string, "string")) {
-        return .string;
-    } else if (mem.eql(u8, string, "object")) {
-        return .object;
-    } else if (mem.eql(u8, string, "array")) {
-        return .array;
-    } else if (mem.eql(u8, string, "fd")) {
-        return .fd;
-    } else {
-        return error.InvalidArgKind;
-    }
+    return if (mem.eql(u8, string, "new_id"))
+        .new_id
+    else if (mem.eql(u8, string, "int"))
+        .int
+    else if (mem.eql(u8, string, "uint"))
+        .uint
+    else if (mem.eql(u8, string, "fixed"))
+        .fixed
+    else if (mem.eql(u8, string, "string"))
+        .string
+    else if (mem.eql(u8, string, "object"))
+        .object
+    else if (mem.eql(u8, string, "array"))
+        .array
+    else if (mem.eql(u8, string, "fd"))
+        .fd
+    else
+        error.InvalidArgKind;
 }
 
 fn parseArg(allocator: mem.Allocator, parser: *xml.Parser) !Arg {

@@ -69,10 +69,10 @@ pub fn putString(buf: *Buffer, string: ?[]const u8) Error!void {
     if (string) |_string| {
         const len = @intCast(u32, _string.len) + 1;
         const padded = (len + 3) / 4 * 4;
-        const zeroes = [4]u8{ 0, 0, 0, 0 };
+        const zeros = [4]u8{ 0, 0, 0, 0 };
         try buf.putUInt(len);
         try buf.bytes.appendSlice(_string);
-        try buf.bytes.appendSlice(zeroes[0 .. padded - len + 1]);
+        try buf.bytes.appendSlice(zeros[0 .. padded - len + 1]);
     } else {
         try buf.putUInt(0);
     }
@@ -82,10 +82,10 @@ pub fn putArray(buf: *Buffer, array: ?[]const u8) Error!void {
     if (array) |_array| {
         const len = @intCast(u32, _array.len);
         const padded = (len + 3) / 4 * 4;
-        const zeroes = [4]u8{ 0, 0, 0, 0 };
+        const zeros = [4]u8{ 0, 0, 0, 0 };
         try buf.putUInt(len);
         try buf.bytes.appendSlice(_array);
-        try buf.bytes.appendSlice(zeroes[0 .. padded - len]);
+        try buf.bytes.appendSlice(zeros[0 .. padded - len]);
     } else {
         try buf.putUInt(0);
     }
