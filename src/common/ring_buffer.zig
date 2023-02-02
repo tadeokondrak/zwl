@@ -106,7 +106,7 @@ pub fn RingBuffer(comptime T: type, comptime size: usize) type {
                 return error.BufferFull;
 
             const len = @intCast(Index, items.len);
-            if (rb.head + len <= size) {
+            if (rb.head <= size - len) {
                 std.mem.copy(T, rb.data[rb.head..], items);
             } else {
                 const split = size - rb.head;

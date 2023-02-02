@@ -89,7 +89,6 @@ pub fn flush(conn: *WireConnection) !void {
         0 => return error.Disconnected,
         else => |n| {
             conn.out.bytes.tail +%= @intCast(u12, n);
-            conn.out.fds.tail +%= @intCast(u9, fds_added);
         },
     }
 }
