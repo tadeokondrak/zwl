@@ -1,0 +1,4 @@
+To generate wl.zig:
+
+zig build
+./zig-out/bin/zwl-scanner < wayland.xml > src/wl.zig
