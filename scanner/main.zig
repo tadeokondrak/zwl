@@ -44,7 +44,7 @@ const MessageKind = enum {
 };
 
 fn isValidZigIdentifier(name: []const u8) bool {
-    for (name) |c, i| switch (c) {
+    for (name, 0..) |c, i| switch (c) {
         '_', 'a'...'z', 'A'...'Z' => {},
         '0'...'9' => if (i == 0) return false,
         else => return false,
@@ -808,7 +808,7 @@ const Context = struct {
             iface.name,
             msg.name,
         });
-        for (msg.args) |arg, i| {
+        for (msg.args, 0..) |arg, i| {
             switch (arg.kind) {
                 .new_id => {
                     try cx.print(

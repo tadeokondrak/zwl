@@ -1,17 +1,26 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
-    const scanner = b.addExecutable("zwl-scanner", "scanner/main.zig");
-    scanner.setBuildMode(mode);
-    scanner.install();
+    const scanner = b.addExecutable(.{
+        .name = "zwl-scanner",
+        .root_source_file = .{ .path = "scanner/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(scanner);
 
-    var client_tests = b.addTest("src/client.zig");
-    client_tests.setBuildMode(mode);
+    var client_tests = b.addTest(.{
+        .name = "client_tests",
+        .root_source_file = .{ .path = "src/client.zig" },
+    });
 
-    var server_tests = b.addTest("src/server.zig");
-    server_tests.setBuildMode(mode);
+    var server_tests = b.addTest(.{
+        .name = "server_tests",
+        .root_source_file = .{ .path = "src/server.zig" },
+    });
 
     const test_client_step = b.step("test-client", "Run client tests");
     test_client_step.dependOn(&client_tests.step);
